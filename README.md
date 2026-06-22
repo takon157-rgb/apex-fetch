@@ -1,86 +1,105 @@
-# ApexFetch
+# ⚡ ApexFetch
 
-**AI-powered remote job lead discovery and operations platform.**  
-Aggregates and analyzes job listings from 14+ RSS sources in real time, applies AI scoring/profitability analysis, and streamlines the application pipeline.
+> High-velocity, AI-powered remote job lead discovery and operations platform.
 
-## Tech Stack
+ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14+ live RSS sources in real-time. By combining lightning-fast native XML parsing with automated Gemini AI scoring and automated proposal pipelines, it transforms raw job boards into a high-converting pipeline.
 
-- **Framework:** Next.js 14 (App Router)
-- **Auth:** Clerk (email/passwordless + Google SSO)
-- **Database:** PostgreSQL via Prisma ORM
-- **AI:** Google Gemini API for job evaluation & proposal generation
-- **Scraping:** Native RSS fetching (cheerio/xml parsing) + Playwright workers for fallback
-- **UI:** Tailwind CSS + custom dark theme animations
-- **Deployment:** Vercel-ready
+🚀 **Built for speed. Optimized for deployment on Vercel.**
 
-## Key Features
+---
 
-- **14 Live RSS Feeds** – RemoteOK, WeWorkRemotely, Himalayas, Remotive, StackOverflow, Reddit (r/forhire), AuthenticJobs, WorkingNomads, CryptoJobsList, LandingJobs, CareerNest, Jobicy, Workbeam, YayRemote
-- **AI Job Evaluation** – Each job gets a score, profitability estimate, difficulty rating, summary, and auto-generated proposal via Gemini
-- **Industry Filtering** – Filter by AI Automation, Video Editing, Appointment Setter, Social Media, Virtual Assistant, Entry Level
-- **Platform Filter** – Top 5 sources shown inline, remaining in expandable dropdown
-- **Discord Integration** – Send jobs to a Discord channel with one click
-- **Admin Panel** – Manage users, toggle subscriptions, assign credits
-- **Local Business Lead Scraper** – Google Maps lead extraction for appointment-setter workflows
-- **Resume Manager** – Upload and store resumes for auto-applications
+## 🛠️ The Tech Stack
 
-## Environment Variables
+- **Core Framework:** Next.js 14 (App Router)
+- **Authentication:** Clerk (Passwordless + Google SSO Magic Links)
+- **Database Engine:** PostgreSQL managed via Prisma ORM
+- **Intelligence Layer:** Google Gemini API (Job scoring, summary metrics, & custom proposal drafting)
+- **Data Ingestion:** Native RSS fetching via Cheerio / fast XML parser + isolated Playwright background workers
+- **Interface Design:** Tailwind CSS with fluid custom dark-mode animations
 
-Copy `.env.example` to `.env.local` and fill in:
+---
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk Publishable Key |
-| `CLERK_SECRET_KEY` | Clerk Secret Key |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | `/sign-in` |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | `/sign-up` |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | `/` |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | `/` |
-| `CLERK_WEBHOOK_SECRET` | Clerk webhook signing secret |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `OPENAI_API_KEY` | OpenAI API key (proposal generation) |
-| `ADMIN_CLERK_ID` | Clerk user ID of the admin |
-| `NEXT_PUBLIC_ADMIN_CLERK_ID` | Same, public-facing |
-| `NEXT_PUBLIC_STRIPE_LINK` | Stripe checkout/test payment link |
+## 🔥 Key Features
 
-## Getting Started
+- **Multi-Source Aggregation:** Real-time ingestion from 14 premium remote tech channels including *RemoteOK, WeWorkRemotely, Himalayas, Remotive, Reddit (r/forhire), CryptoJobsList,* and more.
+- **AI-Powered Deep Filtering:** Deep intelligence scoring. Every lead is evaluated for real-time profitability, complexity grading, and instant personalized cold proposal generation.
+- **Granular Skill Vectors:** Instant routing for modern high-ticket positions: *AI Automation, Video Editing, Appointment Setting, and Tech Operations.*
+- **One-Click Delivery:** Native Discord integration allowing webhook-driven alerts directly to your target channels.
+- **Admin Command Center:** Complete control panel to manage registered users, track platform credits, and toggle user subscription access manually.
+- **Hyper-Local Lead Scraper:** Embedded Google Maps engine designed to instantly extract high-converting local agency workflows.
+
+---
+
+## ⚙️ Environment Configuration
+
+Create a local environment file by duplicating the template:
 
 ```bash
-# Install dependencies
-npm install
+cp .env.example .env.local
+```
 
-# Generate Prisma client
+| Variable | Focus Area | Impact / Role |
+|---|---|---|
+| `DATABASE_URL` | Infrastructure | Connection string to your live PostgreSQL database |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Security | Public identifier for the Clerk authentication flow |
+| `CLERK_SECRET_KEY` | Security | Backend authorization secret for Clerk routines |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Routing | `/sign-in` path |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Routing | `/sign-up` path |
+| `CLERK_WEBHOOK_SECRET` | Synchronization | Real-time database sync for webhooks |
+| `GEMINI_API_KEY` | Intelligence | Powers core job parsing and automated analysis |
+| `OPENAI_API_KEY` | Intelligence | Auxiliary generation and backup model tasks |
+| `ADMIN_CLERK_ID` | Access Control | The master user ID granted complete backend override controls |
+| `NEXT_PUBLIC_STRIPE_LINK` | Monetization | Target checkout link for client tier upscaling |
+
+---
+
+## 🏎️ Getting Started
+
+**1. Initialize Dependencies**
+```bash
+npm install
+```
+
+**2. Prepare the Database Layout**
+```bash
+# Generate the localized type definitions
 npm run db:generate
 
-# Push schema to database
+# Sync your Postgres target schema with the state definition
 npm run db:push
+```
 
-# Start dev server
+**3. Fire up the Engine**
+```bash
 npm run dev
 ```
 
-## Build
+---
+
+## 📦 Build & Production Optimization
+
+To generate an optimized production bundle ready for Vercel edge deployment:
 
 ```bash
 npm run build
 ```
 
-The build command runs `prisma generate` then `next build`.
+> Note: The compilation script automatically executes internal type-checking and updates client Prisma schemas sequentially before assembling production assets.
 
-## Scripts
+---
 
-| Command | Description |
+## 🛠️ CLI Toolkit Reference
+
+| Command | Action Scope |
 |---|---|
-| `npm run dev` | Start Next.js dev server |
-| `npm run build` | Prisma generate + Next build |
-| `npm run start` | Start production server |
-| `npm run db:generate` | Generate Prisma client |
-| `npm run db:migrate` | Run Prisma migrations |
-| `npm run db:push` | Push schema to database |
-| `npm run db:studio` | Open Prisma Studio |
-| `npm run worker` | Run Playwright worker (`scripts/ser.js`) |
+| `npm run dev` | Spins up the local web engine interface |
+| `npm run build` | Compiles codebase for live cloud environments |
+| `npm run db:migrate` | Commits structural state migrations to the live database |
+| `npm run db:studio` | Launches visual Prisma client to manipulate raw tables |
+| `npm run worker` | Initiates the Playwright headless fallbacks (`scripts/ser.js`) |
 
-## License
+---
 
-MIT
+## 📄 License
+
+Distributed under the MIT License.
