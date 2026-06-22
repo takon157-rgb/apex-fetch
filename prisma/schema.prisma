@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LeadStatus {
+  New
+  Contacted
+  Interested
+  Closed
+}
+
+model User {
+  id                String       @id @default(uuid())
+  clerkId           String       @unique
+  email             String?
+  name              String?
+  discordWebhookUrl String?      @db.Text
+  isSubscribed      Boolean      @default(false)
+  creditsRemaining  Int          @default(10)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  localLeads        LocalLead[]
+  businessLeads     LocalBusinessLead[]
+}
+
+model LocalBusinessLead {
+  id               String     @id @default(cuid())
+  userId           String
+  businessName     String
+  niche            String?
+  city             String?
+  address          String?
+  phoneNumber      String?
+  rating           Float?
+  reviewCount      Int?
+  googleMapsUrl    String?
+  opportunityScore Int
+  aiAnalysis       String?
+  coldCallScript   String?
+  emailPitch       String?
+  status           LeadStatus @default(New)
+  createdAt        DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model LocalLead {
+  id               String   @id @default(uuid())
+  userId           String
+  businessName     String
+  niche            String
+  city             String
+  phoneNumber      String?
+  rating           Float?
+  reviewCount      Int?
+  googleMapsUrl    String?
+  opportunityScore Int
+  aiAnalysis       String?  @db.Text
+  coldCallScript   String?  @db.Text
+  emailPitch       String?  @db.Text
+  status           String   @default("PENDING")
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model CareerProfile {
+  id             String   @id @default(uuid())
+  userId         String
+  name           String
+  email          String
+  resumeFileName String
+  resumeBase64   String   @db.Text
+  resumeText     String   @db.Text
+  updatedAt      DateTime @updatedAt
+}

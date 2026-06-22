@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.next/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+.env.*.local
+
+# Runtime data files (auto-generated)
+leads_storage.json
+local_leads_storage.json
+stored_leads.json
+reviewed_jobs.json
+scraper_status.json
+career_profile.json
+settings.json
+jobs_db.json
+jobs.json
+
+# IDE
+.vscode/
