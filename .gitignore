@@ -21,3 +21,6 @@ jobs.json
 
 # IDE
 .vscode/
+
+# Supabase CLI local config
+supabase/
