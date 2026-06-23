@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
+import { Analytics } from '@vercel/analytics/next';
 import Header from './components/Header';
 
 export const metadata: Metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({
         <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
           <Header />
           <main>{children}</main>
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>
