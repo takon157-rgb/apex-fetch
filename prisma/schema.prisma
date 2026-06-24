@@ -26,8 +26,24 @@ model User {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
+  leads             Lead[]
   localLeads        LocalLead[]
   businessLeads     LocalBusinessLead[]
+}
+
+model Lead {
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  description   String   @db.Text
+  budget        String   @default("")
+  source        String
+  url           String
+  aiScore       Int      @default(0)
+  proposalDraft String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model LocalBusinessLead {

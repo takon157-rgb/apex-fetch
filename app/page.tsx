@@ -54,13 +54,30 @@ export default function Dashboard() {
     }
   }, []);
 
+  const mapDbLeadToJob = (lead: any): JobOpportunity => ({
+    id: lead.id,
+    title: lead.title,
+    description: lead.description,
+    budget: lead.budget || 'Open Terms',
+    source: lead.source,
+    url: lead.url,
+    postedTime: lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : 'Just fetched',
+    score: lead.aiScore || 0,
+    summary: lead.description?.substring(0, 200) || '',
+    profitability: (lead.aiScore || 0) >= 7 ? 'High' : (lead.aiScore || 0) >= 4 ? 'Medium' : 'Low',
+    difficulty: 'Medium',
+    proposal: lead.proposalDraft || '',
+    status: 'active',
+  });
+
   const fetchOpportunities = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/scrape', { method: 'GET' });
+      const response = await fetch('/api/leads');
       if (response.ok) {
         const data = await response.json();
-        setJobs(Array.isArray(data) ? data : data?.jobs || []);
+        const dbLeads = data?.leads || [];
+        setJobs(dbLeads.map(mapDbLeadToJob));
       }
     } catch (err) {
       console.error('Failed reading records:', err);
@@ -84,12 +101,18 @@ export default function Dashboard() {
       setProgress(40);
       const [response] = await Promise.all([scrapePromise, scriptsPromise]);
       setProgress(70);
+
+      // Reload leads from DB after scrape
+      const leadsRes = await fetch('/api/leads');
+      if (leadsRes.ok) {
+        const data = await leadsRes.json();
+        const dbLeads = data?.leads || [];
+        setJobs(dbLeads.map(mapDbLeadToJob));
+      }
+
       if (response && response.ok) {
         const data = await response.json();
         const fetchedJobs = data.jobs || [];
-        setJobs(fetchedJobs);
-        
-        // Show scrape stats
         const sources = [...new Set(fetchedJobs.filter((j: any) => j.postedTime === 'Just fetched').map((j: any) => j.source))];
         const newCount = fetchedJobs.filter((j: any) => j.postedTime === 'Just fetched').length;
         setLastScrapeStats(`Found ${newCount} new leads across ${sources.length} sources: ${sources.join(', ') || 'none'}`);
@@ -406,13 +429,22 @@ export default function Dashboard() {
             </h2>
             <a href="/local-leads" className="text-sm text-indigo-300 hover:underline">Local Leads</a>
           </div>
-          <button
-            onClick={handleRunScraperPipeline}
-            disabled={scraping}
-            className={`px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
-          >
-            {scraping ? 'Parsing Remote RSS Feeds...' : '🔍 Pull Live Leads'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={fetchOpportunities}
+              disabled={loading}
+              className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200"
+            >
+              {loading ? 'Refreshing...' : '🔄 Refresh'}
+            </button>
+            <button
+              onClick={handleRunScraperPipeline}
+              disabled={scraping}
+              className={`px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
+            >
+              {scraping ? 'Parsing Remote RSS Feeds...' : '🔍 Pull Live Leads'}
+            </button>
+          </div>
         </header>
         {progress > 0 && (
           <div className="h-1 w-full bg-slate-800">

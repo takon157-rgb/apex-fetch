@@ -19,15 +19,14 @@ interface LocalBusinessLead {
 }
 
 async function getUserWebhookUrl(userId: string | null): Promise<string | null> {
-  if (userId) {
-    try {
-      const user = await prisma.user.findUnique({ where: { clerkId: userId } });
-      if (user?.discordWebhookUrl) return user.discordWebhookUrl;
-    } catch {
-      // fall through to env var
-    }
+  if (!userId) return null;
+  try {
+    const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+    if (user?.discordWebhookUrl) return user.discordWebhookUrl;
+  } catch {
+    // DB error — skip notification
   }
-  return process.env.DISCORD_WEBHOOK_URL || process.env.LOCAL_DISCORD_WEBHOOK_URL || null;
+  return null;
 }
 
 export async function sendLocalLeadDiscordAlert(

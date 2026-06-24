@@ -1,4 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -148,6 +150,16 @@ export async function POST(req: NextRequest) {
     syncFromFile();
     const payload = await req.json().catch(() => ({}));
 
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
     // 1. HANDLE INCOMING STATE MUTATIONS
     if (payload && payload.action === 'update_status') {
       storage.jobs = storage.jobs.map((job: Job) => {
@@ -178,10 +190,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Selected lead not found in local background memory context' }, { status: 404 });
       }
 
-      const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+      const webhookUrl = user.discordWebhookUrl;
       if (!webhookUrl) {
-        console.error('[Configuration Error] Missing DISCORD_WEBHOOK_URL inside environment definitions.');
-        return NextResponse.json({ error: 'Discord connection parameters missing on local server env files' }, { status: 500 });
+        console.error('[User Config] No Discord webhook configured for this user. Skipping dispatch.');
+        return NextResponse.json({ error: 'No Discord webhook URL configured. Set one in your Profile settings.' }, { status: 400 });
       }
 
       // Format a high-fidelity rich embed card for your dispatch channel
@@ -362,10 +374,10 @@ export async function POST(req: NextRequest) {
       existingFingerprints.add(fingerprint);
       itemsInjected++;
 
-      // Dispatch tracking automatically to active Discord Webhooks (only high priority items)
-      if (highQualityLead.score >= 7 && process.env.DISCORD_WEBHOOK_URL) {
+      // Dispatch tracking to user's Discord webhook only (no env var fallback)
+      if (highQualityLead.score >= 7 && user.discordWebhookUrl) {
         try {
-          await fetch(process.env.DISCORD_WEBHOOK_URL, {
+          await fetch(user.discordWebhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -385,6 +397,28 @@ export async function POST(req: NextRequest) {
         } catch (err) {
           console.error('[Discord Webhook Exception Tracking]', err);
         }
+      }
+    }
+
+    // Persist new leads to Supabase for this user
+    const newDbLeads = storage.jobs.filter((j: Job) => j.postedTime === 'Just fetched');
+    if (newDbLeads.length > 0) {
+      try {
+        await prisma.lead.createMany({
+          data: newDbLeads.map((lead: Job) => ({
+            userId: user.id,
+            title: lead.title,
+            description: lead.description,
+            budget: lead.budget,
+            source: lead.source,
+            url: lead.url,
+            aiScore: lead.score,
+            proposalDraft: lead.proposal,
+          })),
+          skipDuplicates: true,
+        });
+      } catch (err) {
+        console.error('[DB] Failed to persist leads:', err);
       }
     }
 

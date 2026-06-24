@@ -1,0 +1,9 @@
+{
+  "version": "5.22.0",
+  "steps": [
+    {
+      "tag": "CreateLeadTable",
+      "sql": "CREATE TABLE \"Lead\" (\n    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    \"userId\" UUID NOT NULL REFERENCES \"User\"(id) ON DELETE CASCADE,\n    title TEXT NOT NULL,\n    description TEXT NOT NULL DEFAULT '',\n    budget TEXT NOT NULL DEFAULT '',\n    source TEXT NOT NULL,\n    url TEXT NOT NULL,\n    \"aiScore\" INTEGER NOT NULL DEFAULT 0,\n    \"proposalDraft\" TEXT,\n    \"createdAt\" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()\n);"
+    }
+  ]
+}
