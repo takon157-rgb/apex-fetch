@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
 import Header from './components/Header';
+import OnboardingPopup from './components/OnboardingPopup';
 
 export const metadata: Metadata = {
   title: 'ApexFetch Dashboard',
@@ -27,6 +28,7 @@ export default function RootLayout({
         <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
           <Header />
           <main>{children}</main>
+          <OnboardingPopup />
         </body>
       </html>
     </ClerkProvider>

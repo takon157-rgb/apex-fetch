@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [progress, setProgress] = useState<number>(0);
   const [applyingMap, setApplyingMap] = useState<Record<string, boolean>>({});
   const [lastScrapeStats, setLastScrapeStats] = useState<string | null>(null);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   const industries = ['All', 'Entry Level', 'AI Automation', 'Video Editing', 'Appointment Setter', 'Social Media', 'Virtual Assistant'];
 
@@ -156,9 +157,14 @@ export default function Dashboard() {
         body: JSON.stringify({ action: 'discord_dispatch', id: job.id })
       });
       
-      const updated = { ...sentMap, [job.id]: true };
-      setSentMap(updated);
-      localStorage.setItem('assistant_sent_map', JSON.stringify(updated));
+      if (res.ok) {
+        const updated = { ...sentMap, [job.id]: true };
+        setSentMap(updated);
+        localStorage.setItem('assistant_sent_map', JSON.stringify(updated));
+      } else {
+        const data = await res.json();
+        console.error('Discord dispatch failed:', data.error);
+      }
     } catch (e) {
       console.error('Discord Channel dispatch connection drop', e);
     } finally {
@@ -422,27 +428,37 @@ export default function Dashboard() {
 
       {/* DASHBOARD VIEWPORT FEED */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-slate-800 bg-slate-950/60 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-          <div className="flex items-center gap-4">
-            <h2 className="font-bold text-slate-200 text-sm md:text-base">
-              {viewMode === 'active' ? 'Live Operational Stream' : 'Archive Trash Repository'}
-            </h2>
-            <a href="/local-leads" className="text-sm text-indigo-300 hover:underline">Local Leads</a>
+        <header className="border-b border-slate-800 bg-slate-950/60 backdrop-blur-md px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between sticky top-0 z-40 gap-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setMobileFilterOpen(true)}
+                className="md:hidden p-2 rounded-lg bg-slate-800 hover:bg-slate-700"
+              >
+                <svg className="w-4 h-4 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+              </button>
+              <h2 className="font-bold text-slate-200 text-sm md:text-base truncate">
+                {viewMode === 'active' ? 'Live' : 'Trash'}
+              </h2>
+            </div>
+            <a href="/local-leads" className="text-xs sm:text-sm text-indigo-300 hover:underline shrink-0">Local</a>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto">
             <button
               onClick={fetchOpportunities}
               disabled={loading}
-              className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200"
+              className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0"
             >
-              {loading ? 'Refreshing...' : '🔄 Refresh'}
+              {loading ? 'Refreshing...' : '🔄'}
             </button>
             <button
               onClick={handleRunScraperPipeline}
               disabled={scraping}
-              className={`px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
+              className={`px-3 sm:px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm shrink-0 ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
             >
-              {scraping ? 'Parsing Remote RSS Feeds...' : '🔍 Pull Live Leads'}
+              {scraping ? 'Parsing...' : '🔍 Pull'}
             </button>
           </div>
         </header>
@@ -457,10 +473,10 @@ export default function Dashboard() {
           </div>
         )}
 
-        <main className="flex-1 p-6 max-w-5xl w-full mx-auto space-y-5">
+        <main className="flex-1 p-3 sm:p-6 max-w-5xl w-full mx-auto space-y-5">
           <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-2.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Target Industry / Niche Selection</span>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
               {industries.map((ind) => (
                 <button
                   key={ind}
@@ -473,22 +489,22 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4">
-              <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">Niche search term</label>
+              <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">Niche search</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={nicheQuery}
                   onChange={(e) => setNicheQuery(e.target.value)}
-                  placeholder="e.g. 'data entry', 'copywriter', 'customer support'"
-                  className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500"
+                  placeholder="e.g. 'data entry', 'copywriter'..."
+                  className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500"
                 />
               </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800 rounded-xl px-4 py-2.5">
-            <span className="text-xs font-semibold text-slate-400">
-              Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> real-time entries
+          <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800 rounded-xl px-3 sm:px-4 py-2.5 gap-2">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-400 truncate">
+              Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> entries
             </span>
             <select
               value={sortBy}
@@ -516,7 +532,7 @@ export default function Dashboard() {
 
                 return (
                   <div key={opportunity.id} className={`bg-slate-950/30 rounded-xl border transition-all overflow-hidden ${isExpanded ? 'border-slate-700 bg-slate-950/70 shadow-lg' : 'border-slate-800 hover:border-slate-700'}`}>
-                    <div className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="p-3 sm:p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4">
                       <div className="space-y-1.5 max-w-xl">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-slate-800 text-indigo-300">{opportunity.source}</span>
@@ -526,38 +542,38 @@ export default function Dashboard() {
                         <h3 className="font-bold text-sm text-slate-200">{opportunity.title}</h3>
                       </div>
 
-                      <div className="flex items-center space-x-2 w-full md:w-auto justify-end shrink-0">
-                        <button onClick={() => setExpandedJobId(isExpanded ? null : opportunity.id)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200">
-                          {isExpanded ? 'Hide' : '📄 Details'}
+                      <div className="flex items-center gap-1.5 w-full md:w-auto justify-end shrink-0 overflow-x-auto">
+                        <button onClick={() => setExpandedJobId(isExpanded ? null : opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0">
+                          {isExpanded ? 'Hide' : '📄'}
                         </button>
 
                         {viewMode === 'active' ? (
                           <>
-                            <button onClick={() => reviewJob(opportunity)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition">
-                              Send to Profile
+                            <button onClick={() => reviewJob(opportunity)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition shrink-0">
+                              Profile
                             </button>
-                            <button onClick={() => toggleApplied(opportunity.id)} className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition ${isApplied ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                              {isApplied ? '✓ Shortlisted' : 'Mark Tracking'}
+                            <button onClick={() => toggleApplied(opportunity.id)} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${isApplied ? 'bg-indigo-500/10 border-indigo-500 text-indigo-400' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
+                              {isApplied ? '✓' : 'Track'}
                             </button>
-                            <button onClick={() => applyToJob(opportunity.id)} disabled={!!applyingMap[opportunity.id]} className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition ${opportunity.applied ? 'bg-emerald-600/10 border-emerald-500 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                              {applyingMap[opportunity.id] ? 'Applying...' : (opportunity.applied ? 'Applied' : 'Auto-Apply')}
+                            <button onClick={() => applyToJob(opportunity.id)} disabled={!!applyingMap[opportunity.id]} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${opportunity.applied ? 'bg-emerald-600/10 border-emerald-500 text-emerald-300' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
+                              {applyingMap[opportunity.id] ? '...' : (opportunity.applied ? 'Applied' : 'Apply')}
                             </button>
-                            <button onClick={() => handleSendToDiscordAndMarkSent(opportunity)} aria-disabled={isSendingToDiscord} className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition ${isSent ? 'bg-purple-600/20 border-purple-500 text-purple-300' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                              {isSendingToDiscord ? 'Syncing...' : isSent ? '🔮 Relayed' : '🚀 Send Hook'}
+                            <button onClick={() => handleSendToDiscordAndMarkSent(opportunity)} aria-disabled={isSendingToDiscord} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${isSent ? 'bg-purple-600/20 border-purple-500 text-purple-300' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
+                              {isSendingToDiscord ? '...' : isSent ? '🔮' : '🚀'}
                             </button>
-                            <button onClick={() => moveToTrash(opportunity.id)} className="p-1.5 text-xs rounded-lg border border-slate-800 bg-slate-900 text-slate-500 hover:text-rose-400">🗑</button>
+                            <button onClick={() => moveToTrash(opportunity.id)} className="p-1.5 text-xs rounded-lg border border-slate-800 bg-slate-900 text-slate-500 hover:text-rose-400 shrink-0">🗑</button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => restoreFromTrash(opportunity.id)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20">🔄 Restore</button>
-                            <button onClick={() => purgePermanently(opportunity.id)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500">❌ Wipe</button>
+                            <button onClick={() => restoreFromTrash(opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 shrink-0">🔄</button>
+                            <button onClick={() => purgePermanently(opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500 shrink-0">❌</button>
                           </>
                         )}
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t border-slate-800 bg-slate-950/40 p-5 space-y-5 text-xs">
+                      <div className="border-t border-slate-800 bg-slate-950/40 p-3 sm:p-5 space-y-4 sm:space-y-5 text-xs">
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Job Description</h4>
@@ -598,6 +614,103 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+      {/* MOBILE FILTER DRAWER */}
+      {mobileFilterOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setMobileFilterOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-slate-950 border-r border-slate-800 shadow-2xl animate-slide-down p-6 overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Filters</span>
+              <button onClick={() => setMobileFilterOpen(false)} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Lead Repositories</span>
+                <button
+                  onClick={() => { setViewMode('active'); setMobileFilterOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'active' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-900'}`}
+                >
+                  <span>📥 Live Leads Feed</span>
+                  <span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px]">{totalActiveLeadsCount}</span>
+                </button>
+                <button
+                  onClick={() => { setViewMode('trash'); setMobileFilterOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'trash' ? 'bg-rose-600/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-900'}`}
+                >
+                  <span>🗑 Trash Bin History</span>
+                  <span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px] text-slate-400">{totalTrashCount}</span>
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Workspace</span>
+                <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition">
+                  Profile & Resume
+                </Link>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Filter Platforms</span>
+                <button
+                  onClick={() => { setSelectedSource('All'); setMobileFilterOpen(false); }}
+                  className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === 'All' ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}
+                >
+                  Universal Feed
+                </button>
+                {sortedSources.slice(0, 5).map(([src]) => (
+                  <button
+                    key={src}
+                    onClick={() => { setSelectedSource(src); setMobileFilterOpen(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}
+                  >
+                    {src}
+                  </button>
+                ))}
+                {sortedSources.length > 5 && (
+                  <details className="group">
+                    <summary className="w-full text-left px-3 py-1.5 text-xs rounded-xl text-slate-500 hover:text-slate-300 hover:bg-slate-900 cursor-pointer list-none flex items-center gap-1">
+                      <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      More sources ({sortedSources.length - 5})
+                    </summary>
+                    <div className="pt-1 space-y-0.5">
+                      {sortedSources.slice(5).map(([src]) => (
+                        <button
+                          key={src}
+                          onClick={() => { setSelectedSource(src); setMobileFilterOpen(false); }}
+                          className={`w-full text-left px-3 py-1 text-xs rounded-xl transition ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}
+                        >
+                          {src}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {sortedSources.length > 0 && (
+                <div className="space-y-1 pt-2 border-t border-slate-800/50">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Sources Breakdown</span>
+                  <div className="space-y-1">
+                    {sortedSources.slice(0, 10).map(([source, count]) => (
+                      <div key={source} className="flex items-center justify-between px-3 py-1">
+                        <span className="text-[11px] text-slate-400 truncate max-w-[140px]">{source}</span>
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

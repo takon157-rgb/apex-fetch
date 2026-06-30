@@ -36,6 +36,9 @@ export default function ProfilePage() {
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
   const [savingDiscord, setSavingDiscord] = useState(false);
   const [discordSaved, setDiscordSaved] = useState(false);
+  const [discordError, setDiscordError] = useState('');
+  const [testingDiscord, setTestingDiscord] = useState(false);
+  const [discordTestResult, setDiscordTestResult] = useState<'idle' | 'success' | 'error'>('idle');
 
   useEffect(() => {
     fetchProfile();
@@ -78,9 +81,20 @@ export default function ProfilePage() {
     } catch {}
   };
 
+  const isValidDiscordWebhook = (url: string) => {
+    return /^https:\/\/discord\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/.test(url);
+  };
+
   const saveDiscordWebhook = async () => {
-    setSavingDiscord(true);
+    setDiscordError('');
     setDiscordSaved(false);
+
+    if (discordWebhookUrl && !isValidDiscordWebhook(discordWebhookUrl)) {
+      setDiscordError('Invalid Discord webhook URL format. It should look like: https://discord.com/api/webhooks/...');
+      return;
+    }
+
+    setSavingDiscord(true);
     try {
       const res = await fetch('/api/profile/discord', {
         method: 'POST',
@@ -90,10 +104,40 @@ export default function ProfilePage() {
       const data = await res.json();
       if (data.success) {
         setDiscordSaved(true);
+        setDiscordTestResult('idle');
         setTimeout(() => setDiscordSaved(false), 3000);
+      } else {
+        setDiscordError(data.error || 'Failed to save webhook');
       }
-    } catch {}
+    } catch {
+      setDiscordError('Network error saving webhook');
+    }
     setSavingDiscord(false);
+  };
+
+  const testDiscordWebhook = async () => {
+    if (!discordWebhookUrl) return;
+    setTestingDiscord(true);
+    setDiscordTestResult('idle');
+    setDiscordError('');
+    try {
+      const res = await fetch('/api/profile/discord/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ discordWebhookUrl }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDiscordTestResult('success');
+      } else {
+        setDiscordTestResult('error');
+        setDiscordError(data.error || 'Test failed');
+      }
+    } catch {
+      setDiscordTestResult('error');
+      setDiscordError('Network error testing webhook');
+    }
+    setTestingDiscord(false);
   };
 
   const addTargetUrl = async () => {
@@ -257,38 +301,57 @@ export default function ProfilePage() {
         </div>
 
         {/* Discord Webhook Settings */}
-        <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-8 shadow-xl backdrop-blur">
+        <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-6 sm:p-8 shadow-xl backdrop-blur">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-purple-400">Notifications</p>
             <h2 className="mt-2 text-2xl font-bold text-white">Discord Alert Webhook</h2>
             <p className="mt-1 text-sm text-slate-400">
-              Set your personal Discord webhook URL to receive local lead alerts. If left empty, alerts will show on the dashboard instead.
+              Connect a Discord webhook to receive real-time alerts for high-scoring leads. Create one in your Discord server settings under <strong className="text-slate-300">Integrations &gt; Webhooks</strong>.
             </p>
           </div>
-          <div className="mt-6 flex gap-2">
-            <input
-              type="url"
-              value={discordWebhookUrl}
-              onChange={(e) => setDiscordWebhookUrl(e.target.value)}
-              placeholder="https://discord.com/api/webhooks/..."
-              className="flex-1 rounded-xl border border-slate-800/50 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 placeholder:text-slate-600"
-            />
-            <button
-              onClick={saveDiscordWebhook}
-              disabled={savingDiscord}
-              className="rounded-xl bg-gradient-to-r from-purple-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
-            >
-              {savingDiscord ? 'Saving...' : 'Save'}
-            </button>
+          <div className="mt-6 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="url"
+                value={discordWebhookUrl}
+                onChange={(e) => { setDiscordWebhookUrl(e.target.value); setDiscordError(''); setDiscordTestResult('idle'); }}
+                placeholder="https://discord.com/api/webhooks/..."
+                className="flex-1 rounded-xl border border-slate-800/50 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-500/20 placeholder:text-slate-600"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={saveDiscordWebhook}
+                  disabled={savingDiscord}
+                  className="rounded-xl bg-gradient-to-r from-purple-500 to-violet-500 px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50"
+                >
+                  {savingDiscord ? 'Saving...' : 'Save'}
+                </button>
+                {discordWebhookUrl && (
+                  <button
+                    onClick={testDiscordWebhook}
+                    disabled={testingDiscord || !discordWebhookUrl}
+                    className="rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm font-semibold text-slate-200 transition disabled:opacity-50 hover:bg-slate-700"
+                  >
+                    {testingDiscord ? 'Testing...' : 'Test'}
+                  </button>
+                )}
+              </div>
+            </div>
+            {discordError && (
+              <p className="text-xs text-rose-400">{discordError}</p>
+            )}
+            {discordSaved && (
+              <p className="text-xs text-emerald-400">Webhook URL saved successfully!</p>
+            )}
+            {discordTestResult === 'success' && (
+              <p className="text-xs text-emerald-400">✅ Test message sent! Check your Discord channel.</p>
+            )}
+            {!discordWebhookUrl && !discordSaved && !discordError && (
+              <p className="text-xs text-amber-400">
+                No webhook set — high-scoring leads will appear as dashboard alerts instead of Discord notifications.
+              </p>
+            )}
           </div>
-          {discordSaved && (
-            <p className="mt-2 text-xs text-emerald-400">Webhook URL saved successfully!</p>
-          )}
-          {!discordWebhookUrl && !discordSaved && (
-            <p className="mt-2 text-xs text-amber-400">
-              No webhook set — high-scoring leads will appear as dashboard alerts instead of Discord notifications.
-            </p>
-          )}
         </div>
 
         {/* Target Sites Manager */}
