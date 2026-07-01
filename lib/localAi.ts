@@ -58,7 +58,7 @@ Generate:
 Format your response as JSON with keys: "analysis", "coldCallScript", "emailPitch"`;
 
   try {
-    const useGemini = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    const useGemini = process.env.GEMINI_API_KEY;
     const useOpenAI = process.env.OPENAI_API_KEY;
 
     if (useGemini) {
@@ -83,7 +83,7 @@ async function analyzeWithGemini(
   prompt: string,
   opportunityScore: number
 ): Promise<AIAnalysisResult> {
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
   const result = await model.generateContent(prompt);

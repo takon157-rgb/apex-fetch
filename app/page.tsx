@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useUser } from '@clerk/nextjs';
 
 interface JobOpportunity {
   id: string;
@@ -22,6 +24,9 @@ interface JobOpportunity {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
+  const { user, isLoaded } = useUser();
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
   const [jobs, setJobs] = useState<JobOpportunity[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [scraping, setScraping] = useState<boolean>(false);
@@ -46,6 +51,29 @@ export default function Dashboard() {
   const industries = ['All', 'Entry Level', 'AI Automation', 'Video Editing', 'Appointment Setter', 'Social Media', 'Virtual Assistant'];
 
   useEffect(() => {
+    if (!isLoaded) return;
+    if (!user) { router.push('/sign-in'); return; }
+
+    async function checkOnboarding() {
+      try {
+        const res = await fetch('/api/user-preferences');
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.preferences?.setupComplete) {
+            router.push('/onboarding');
+            return;
+          }
+        }
+      } catch {
+        // allows offline dev
+      }
+      setOnboardingChecked(true);
+    }
+    checkOnboarding();
+  }, [isLoaded, user, router]);
+
+  useEffect(() => {
+    if (!onboardingChecked) return;
     fetchOpportunities();
     if (typeof window !== 'undefined') {
       const savedApplied = localStorage.getItem('assistant_applied_map');
@@ -53,7 +81,7 @@ export default function Dashboard() {
       if (savedApplied) setAppliedMap(JSON.parse(savedApplied));
       if (savedSent) setSentMap(JSON.parse(savedSent));
     }
-  }, []);
+  }, [onboardingChecked]);
 
   const mapDbLeadToJob = (lead: any): JobOpportunity => ({
     id: lead.id,

@@ -6,22 +6,81 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { jobId, jobTitle, jobDescription } = body;
-    if (!jobId || !jobDescription) return NextResponse.json({ success: false, error: 'Missing jobId or jobDescription' }, { status: 400 });
+    const { jobId, jobTitle, jobDescription, mode } = body;
+    if (!jobId || !jobDescription) {
+      return NextResponse.json({ success: false, error: 'Missing jobId or jobDescription' }, { status: 400 });
+    }
 
     const profile = getCareerProfile();
-    if (!profile?.resumeText && !profile?.resumeBase64) {
+    if (!profile) {
+      return NextResponse.json({ success: false, error: 'No career profile found. Create one first.' }, { status: 400 });
+    }
+    if (!profile.resumeText && !profile.resumeBase64) {
       return NextResponse.json({ success: false, error: 'No resume found in profile. Upload a resume first.' }, { status: 400 });
     }
 
     const resumeText = profile.resumeText || '[Resume file uploaded - binary content]';
+    const profileName = profile.name || '';
+    const profileEmail = profile.email || '';
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ success: false, error: 'GEMINI_API_KEY not configured' }, { status: 500 });
     }
 
-    const prompt = `You are an elite resume tailoring expert. Your task is to rework and optimize a candidate's resume to perfectly match a specific job description.
+    const outputMode = mode || 'resume';
+
+    function buildPrompt(): string {
+      if (outputMode === 'both') {
+        return `You are an elite career application assistant. Generate BOTH a tailored resume AND a cover letter for a job application.
+
+ORIGINAL RESUME:
+${resumeText}
+
+TARGET JOB:
+Title: ${jobTitle}
+Description: ${jobDescription}
+
+OUTPUT FORMAT:
+=== RESUME ===
+[tailored resume content]
+
+=== COVER LETTER ===
+[cover letter content]
+
+INSTRUCTIONS:
+1. Resume: Tailor the candidate's resume to highlight experience and skills matching this job. Use sections: Summary, Skills, Experience, Education. Do not fabricate.
+2. Cover Letter: Write a 3-4 paragraph professional cover letter referencing the candidate's relevant experience.
+3. Use [Name], [Email], [Phone] as placeholders in the cover letter.
+4. Keep factual - only use real experience from the resume.`;
+      }
+
+      if (outputMode === 'cover-letter') {
+        return `You are an expert cover letter writer. Write a compelling, tailored cover letter for a job application.
+
+CANDIDATE PROFILE:
+${profileName ? `Name: ${profileName}` : ''}
+${profileEmail ? `Email: ${profileEmail}` : ''}
+
+RESUME:
+${resumeText}
+
+TARGET JOB:
+Title: ${jobTitle}
+Description: ${jobDescription}
+
+INSTRUCTIONS:
+1. Write a professional cover letter that highlights the candidate's relevant experience for this specific role.
+2. Reference specific skills and achievements from the resume that match the job requirements.
+3. Keep it concise (3-4 paragraphs), professional, and enthusiastic.
+4. Do NOT fabricate experience or qualifications.
+5. Use placeholders [Name], [Email], [Phone] for contact details.
+6. Format with proper paragraph breaks.
+
+Return ONLY the cover letter text, no commentary.`;
+      }
+
+      return `You are an elite resume tailoring expert. Rework a candidate's resume to match a specific job description.
 
 ORIGINAL RESUME:
 ${resumeText}
@@ -39,28 +98,47 @@ INSTRUCTIONS:
 6. Format as a clean, professional resume with sections: Summary, Skills, Experience, Education.
 
 Return ONLY the tailored resume text, no commentary.`;
+    }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`;
+    const prompt = buildPrompt();
+
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 3072 },
       }),
     });
 
     const data = await response.json();
-    const tailoredResume = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const output = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    if (!tailoredResume) {
+    if (!output) {
       return NextResponse.json({ success: false, error: 'AI returned empty response' }, { status: 500 });
     }
 
-    updateReviewedJob(jobId, { tailoredResume });
+    if (outputMode === 'both') {
+      const resumeMatch = output.match(/=== RESUME ===\n([\s\S]*?)(?:\n=== COVER LETTER ===|$)/);
+      const letterMatch = output.match(/=== COVER LETTER ===\n([\s\S]*)/);
+      const tailoredResume = resumeMatch?.[1]?.trim() || output;
+      const coverLetter = letterMatch?.[1]?.trim() || '';
 
-    return NextResponse.json({ success: true, tailoredResume });
+      updateReviewedJob(jobId, { tailoredResume, coverLetter });
+
+      return NextResponse.json({ success: true, tailoredResume, coverLetter });
+    }
+
+    if (outputMode === 'cover-letter') {
+      updateReviewedJob(jobId, { coverLetter: output });
+      return NextResponse.json({ success: true, coverLetter: output });
+    }
+
+    updateReviewedJob(jobId, { tailoredResume: output });
+    return NextResponse.json({ success: true, tailoredResume: output });
   } catch (err) {
     return NextResponse.json({ success: false, error: (err as Error).message }, { status: 500 });
   }

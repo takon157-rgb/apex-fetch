@@ -324,6 +324,7 @@ export interface ReviewedJob {
   description: string;
   reviewedAt: string;
   tailoredResume?: string;
+  coverLetter?: string;
 }
 
 export function getReviewedJobs(): ReviewedJob[] {
