@@ -2,9 +2,7 @@
 
 > High-velocity, AI-powered remote job lead discovery and operations platform.
 
-ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14+ live RSS sources in real-time. By combining lightning-fast native XML parsing with automated Gemini AI scoring and automated proposal pipelines, it transforms raw job boards into a high-converting pipeline.
-
-🚀 **Built for speed. Optimized for deployment on Vercel.**
+ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14+ live sources in real-time. By combining RSS/API feed parsing with automated Gemini AI scoring, resume-tailored filtering, and Discord dispatch, it transforms raw job boards into a high-converting pipeline.
 
 ---
 
@@ -12,91 +10,137 @@ ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14
 
 - **Core Framework:** Next.js 14 (App Router)
 - **Authentication:** Clerk (Passwordless + Google SSO Magic Links)
-- **Database Engine:** PostgreSQL managed via Prisma ORM
-- **Intelligence Layer:** Google Gemini API (Job scoring, summary metrics, & custom proposal drafting)
-- **Data Ingestion:** Native RSS fetching via Cheerio / fast XML parser + isolated Playwright background workers
-- **Interface Design:** Tailwind CSS with fluid custom dark-mode animations
+- **Database:** PostgreSQL via Supabase, managed through Prisma ORM
+- **AI Layer:** Google Gemini API (Job scoring, resume tailoring, proposal drafting)
+- **Scraping:** Native RSS/JSON feed ingestion + Playwright headless workers
+- **UI:** Tailwind CSS with dark-mode design
 
 ---
 
 ## 🔥 Key Features
 
-- **Multi-Source Aggregation:** Real-time ingestion from 14 premium remote tech channels including *RemoteOK, WeWorkRemotely, Himalayas, Remotive, Reddit (r/forhire), CryptoJobsList,* and more.
-- **AI-Powered Deep Filtering:** Deep intelligence scoring. Every lead is evaluated for real-time profitability, complexity grading, and instant personalized cold proposal generation.
-- **Granular Skill Vectors:** Instant routing for modern high-ticket positions: *AI Automation, Video Editing, Appointment Setting, and Tech Operations.*
-- **One-Click Delivery:** Native Discord integration allowing webhook-driven alerts directly to your target channels.
-- **Admin Command Center:** Complete control panel to manage registered users, track platform credits, and toggle user subscription access manually.
-- **Hyper-Local Lead Scraper:** Embedded Google Maps engine designed to instantly extract high-converting local agency workflows.
+### Unified Scraper Pipeline
+- **14 sources** scraped sequentially with rate-limit delays: Reddit (JSON API), RemoteOK (API), Remotive, WeWorkRemotely, Himalayas, AuthenticJobs, StackOverflow, CryptoJobsList, WorkingNomads, Indeed, LandingJobs, Jobicy, CareerNest, Workbeam
+- **Progress tracking** — real-time progress bar showing per-source status during pull
+- **Trend discovery** — Playwright workers identify trending company domains from job boards
+- **Source health monitoring** — every scrape records per-source success/failure
+
+### AI-Powered Resume-Tailored Filtering
+- Every job is scored against your **target roles, core skills, and parsed resume summary**
+- Jobs matching your profile keywords receive score bonuses
+- Gemini AI can be called per-job for deep analysis with resume context injected into the prompt
+
+### Smart Feed Pruning
+- On each pull, low-scored entries (aiScore < 8) are automatically archived unless tracked or applied
+- Only high-quality leads (score 8-10) survive alongside your tracked/applied entries
+
+### Dashboard Controls
+- **Track** — mark leads for follow-up (persisted to DB)
+- **Apply** — mark leads as applied with timestamp
+- **Profile** — send any job to the Career Workspace for AI resume tailoring
+- **Send to Discord** — manually dispatch any lead to your configured webhook
+- **Delete / Purge** — per-row deletion that persists permanently
+- **Restore** — recover deleted leads from the Trash Bin
+
+### Blocklist Management
+- Add keywords to filter unwanted postings (e.g., "blockchain", "crypto")
+- Blocklist is stored per-user and applied during every scrape
+
+### Career Profile Workspace
+- Upload resume (PDF/DOC) or paste text
+- Send jobs for review and generate AI-tailored resumes via Gemini
+- Full history of reviewed jobs with tailored resume viewer
+
+### Discord Integration
+- Configure your webhook URL in Profile settings
+- Auto-dispatch high-scoring leads (score >= 7) during scrape
+- Manual dispatch per-lead from the dashboard
+- Webhook test button in settings
+
+### Admin Command Center
+- User management with Upgrade/Demote subscription toggling
+- Set credits per user
+- Platform stats: total users, leads, subscribed vs free users
+
+### Auto-Scrape Cron
+- Scheduled endpoint (`/api/cron/scrape`) for automatic scraping of subscribed users
+- Protected by `CRON_SECRET` header
+
+### Local Lead Scraper
+- Embedded Google Maps Places API engine for local business discovery
+- AI-generated cold call scripts and email pitches
 
 ---
 
 ## ⚙️ Environment Configuration
 
-Create a local environment file by duplicating the template:
+Create `.env.local` from the template:
 
 ```bash
 cp .env.example .env.local
 ```
 
-| Variable | Focus Area | Impact / Role |
-|---|---|---|
-| `DATABASE_URL` | Infrastructure | Connection string to your live PostgreSQL database |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Security | Public identifier for the Clerk authentication flow |
-| `CLERK_SECRET_KEY` | Security | Backend authorization secret for Clerk routines |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Routing | `/sign-in` path |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Routing | `/sign-up` path |
-| `CLERK_WEBHOOK_SECRET` | Synchronization | Real-time database sync for webhooks |
-| `GEMINI_API_KEY` | Intelligence | Powers core job parsing and automated analysis |
-| `OPENAI_API_KEY` | Intelligence | Auxiliary generation and backup model tasks |
-| `ADMIN_CLERK_ID` | Access Control | The master user ID granted complete backend override controls |
-| `NEXT_PUBLIC_STRIPE_LINK` | Monetization | Target checkout link for client tier upscaling |
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string (Supabase) |
+| `DIRECT_URL` | Direct connection for migrations |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk public key |
+| `CLERK_SECRET_KEY` | Clerk secret key |
+| `CLERK_WEBHOOK_SECRET` | Clerk webhook signing secret |
+| `GEMINI_API_KEY` | Google Gemini API key for AI features |
+| `GEMINI_MODEL` | Gemini model name (default: `gemini-2.5-flash`) |
+| `ADMIN_CLERK_ID` | Clerk user ID granted admin access |
+| `NEXT_PUBLIC_ADMIN_CLERK_ID` | Public admin ID for frontend checks |
+| `CRON_SECRET` | Secret for authenticating cron requests |
+| `NEXT_PUBLIC_STRIPE_LINK` | Stripe checkout link for upgrades |
+| `SUPABASE_URL` | Supabase project URL (for storage) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (for resume storage) |
+| `DISCORD_WEBHOOK_URL` | Fallback global Discord webhook URL |
 
 ---
 
 ## 🏎️ Getting Started
 
-**1. Initialize Dependencies**
+**1. Install dependencies**
 ```bash
 npm install
 ```
 
-**2. Prepare the Database Layout**
+**2. Sync the database schema**
 ```bash
-# Generate the localized type definitions
-npm run db:generate
-
-# Sync your Postgres target schema with the state definition
-npm run db:push
+npx prisma db push
 ```
 
-**3. Fire up the Engine**
+**3. Start the dev server**
 ```bash
 npm run dev
 ```
 
+**4. Open the app**
+Navigate to `http://localhost:3000` and sign in via Clerk.
+
 ---
 
-## 📦 Build & Production Optimization
-
-To generate an optimized production bundle ready for Vercel edge deployment:
+## 📦 Build for Production
 
 ```bash
 npm run build
 ```
 
-> Note: The compilation script automatically executes internal type-checking and updates client Prisma schemas sequentially before assembling production assets.
+The build compiles TypeScript, generates the Prisma client, and assembles an optimized production bundle ready for Vercel deployment.
 
 ---
 
-## 🛠️ CLI Toolkit Reference
+## 🛠️ CLI Toolkit
 
-| Command | Action Scope |
+| Command | Action |
 |---|---|
-| `npm run dev` | Spins up the local web engine interface |
-| `npm run build` | Compiles codebase for live cloud environments |
-| `npm run db:migrate` | Commits structural state migrations to the live database |
-| `npm run db:studio` | Launches visual Prisma client to manipulate raw tables |
-| `npm run worker` | Initiates the Playwright headless fallbacks (`scripts/ser.js`) |
+| `npm run dev` | Start local development server |
+| `npm run build` | Build for production |
+| `npx prisma db push` | Sync schema to database |
+| `npx prisma studio` | Open Prisma data browser |
+| `npx prisma migrate dev` | Create and apply migrations |
+| `npm run worker` | Run Playwright side scraper (`scripts/ser.js`) |
 
 ---
 

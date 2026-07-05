@@ -16,19 +16,19 @@ export async function GET() {
     const users = await prisma.user.findMany({
       include: {
         _count: {
-          select: { localLeads: true },
+          select: { leads: true, localLeads: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    const totalScrapes = users.reduce((sum, u) => sum + u._count.localLeads, 0);
+    const totalScrapes = users.reduce((sum, u) => sum + u._count.leads, 0);
 
     return NextResponse.json({
       success: true,
       totalUsers: users.length,
       totalScrapes,
-      users: users.map((u) => ({
+      users: users.map(u => ({
         id: u.id,
         clerkId: u.clerkId,
         email: u.email,
@@ -59,14 +59,8 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updateData: Record<string, unknown> = {};
-
-    if (typeof isSubscribed === 'boolean') {
-      updateData.isSubscribed = isSubscribed;
-    }
-
-    if (typeof credits === 'number' && credits >= 0) {
-      updateData.creditsRemaining = credits;
-    }
+    if (typeof isSubscribed === 'boolean') updateData.isSubscribed = isSubscribed;
+    if (typeof credits === 'number' && credits >= 0) updateData.creditsRemaining = credits;
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ success: false, error: 'No valid fields to update' }, { status: 400 });
