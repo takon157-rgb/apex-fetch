@@ -36,11 +36,16 @@ export async function POST(req: NextRequest) {
       if (!lead || lead.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (!user.discordWebhookUrl) return NextResponse.json({ error: 'No Discord webhook configured' }, { status: 400 });
 
+      const stripHtml = (text: string) => text
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+        .replace(/\\n/g, '\n').replace(/\\t/g, ' ').replace(/\s+/g, ' ').trim();
+
       const discordPayload = {
         embeds: [{
           title: `🎯 Manual Lead: ${lead.title}`,
           url: lead.url,
-          description: lead.description?.substring(0, 800) || 'No description provided.',
+          description: stripHtml(lead.description || '').substring(0, 800) || 'No description provided.',
           color: 3447003,
           fields: [
             { name: 'Source', value: lead.source || 'Unknown', inline: true },
@@ -83,6 +88,27 @@ export async function POST(req: NextRequest) {
     let result: { leadsCreated: number; leadsPruned: number; sourceResults: { source: string; success: boolean; count: number; error?: string }[] };
     try {
       result = await runScrapePipeline(user.id, preferences, blacklist, selectedIndustry, nicheQuery, onProgress);
+
+      if (user.discordWebhookUrl && result.leadsCreated > 0) {
+        const { sendJobDiscordAlert } = await import('@/lib/discord');
+        const stripHtml = (text: string) => text.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\\n/g, '\n').replace(/\s+/g, ' ').trim();
+
+        const highScoring = await prisma.lead.findMany({
+          where: { userId: user.id, aiScore: { gte: 7 }, createdAt: { gte: new Date(Date.now() - 60000) } },
+          take: 5,
+        });
+
+        for (const l of highScoring) {
+          try {
+            await sendJobDiscordAlert(user.discordWebhookUrl, {
+              title: l.title, url: l.url, description: stripHtml(l.description || ''),
+              source: l.source, budget: l.budget, aiScore: l.aiScore,
+            }, 'auto');
+            await new Promise(r => setTimeout(r, 500));
+          } catch {}
+        }
+      }
+
       await prisma.scrapeSession.update({
         where: { id: session.id },
         data: { status: 'completed', completedSources: 14, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },

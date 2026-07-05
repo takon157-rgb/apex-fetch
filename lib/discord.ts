@@ -5,19 +5,24 @@ export async function sendJobDiscordAlert(
   job: { title: string; url: string; description: string; source: string; budget: string; aiScore: number; summary?: string; proposal?: string },
   mode: 'manual' | 'auto' = 'auto',
 ): Promise<boolean> {
+  const stripHtml = (text: string) => text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\\n/g, '\n').replace(/\\t/g, ' ').replace(/\s+/g, ' ').trim();
+
   try {
     const discordPayload = {
       embeds: [{
         title: `${mode === 'manual' ? '🎯 Manual' : '🚨 Live Pipeline'} Lead: ${job.title}`,
         url: job.url || undefined,
-        description: job.description?.substring(0, 800) || 'No description provided.',
+        description: stripHtml(job.description || '').substring(0, 800) || 'No description provided.',
         color: mode === 'manual' ? 3447003 : 5763719,
         fields: [
           { name: 'Source', value: job.source || 'Unknown', inline: true },
           { name: 'Budget', value: job.budget || 'Not Specified', inline: true },
           { name: 'AI Score', value: `⭐ ${job.aiScore}/10`, inline: true },
-          ...(job.summary ? [{ name: 'Summary', value: job.summary.substring(0, 500) }] : []),
-          ...(job.proposal ? [{ name: 'Proposal', value: job.proposal.substring(0, 500) }] : []),
+          ...(job.summary ? [{ name: 'Summary', value: stripHtml(job.summary).substring(0, 500) }] : []),
+          ...(job.proposal ? [{ name: 'Proposal', value: stripHtml(job.proposal).substring(0, 500) }] : []),
         ],
         footer: { text: `ApexFetch • ${mode === 'manual' ? 'Manual Dispatch' : 'Auto Dispatch'}` },
         timestamp: new Date().toISOString(),
