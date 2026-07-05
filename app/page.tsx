@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<JobOpportunity[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [scraping, setScraping] = useState<boolean>(false);
+  const [scrapeDone, setScrapeDone] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<string>('score');
   const [selectedSource, setSelectedSource] = useState<string>('All');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
@@ -81,21 +82,25 @@ export default function Dashboard() {
         const res = await fetch(`/api/scrape/progress?sessionId=${sessionId}`);
         if (!res.ok) { clearInterval(interval); return; }
         const data = await res.json();
-        setProgress(data.progress || 0);
+        setProgress(Math.min(data.progress, 95));
         setProgressStatus(data.currentSource ? `Scraping ${data.currentSource}...` : 'Processing...');
         if (data.status === 'completed' || data.status === 'error') {
           clearInterval(interval);
+          setProgress(100);
+          setScrapeDone(true);
           if (data.status === 'completed') {
+            setProgressStatus('Done! ✅');
             const leadsRes = await fetch('/api/leads');
             if (leadsRes.ok) {
               const leadsData = await leadsRes.json();
               const dbLeads = leadsData?.leads || [];
               setJobs(dbLeads.map(mapDbLeadToJob));
             }
+            setTimeout(() => { setProgress(0); setScrapeDone(false); }, 2500);
           }
           setScraping(false);
           setSessionId(null);
-          if (data.status === 'error') setProgressStatus(`Error: ${data.error}`);
+          if (data.status === 'error') { setProgressStatus(`Error: ${data.error}`); setTimeout(() => { setProgress(0); setScrapeDone(false); }, 4000); }
         }
       } catch { clearInterval(interval); setScraping(false); setSessionId(null); }
     }, 1500);
@@ -271,6 +276,15 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
+  const clearTrashBin = async () => {
+    const trashIds = jobs.filter(j => j.deleted).map(j => j.id);
+    if (trashIds.length === 0) return;
+    for (const id of trashIds) {
+      try { await fetch(`/api/leads/${id}`, { method: 'DELETE' }); } catch {}
+    }
+    setJobs(prev => prev.filter(j => !j.deleted));
+  };
+
   const filterByIndustry = (job: JobOpportunity) => {
     if (selectedIndustry === 'All') return true;
     const dataBody = `${job.title} ${job.description} ${job.summary}`.toLowerCase();
@@ -440,11 +454,12 @@ export default function Dashboard() {
           <div className="border-b border-slate-800 bg-slate-950/40">
             <div className="px-6 py-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-indigo-300">{progressStatus || `Scraping... ${progress}%`}</span>
-                <span className="text-xs text-slate-500">{progress}%</span>
+                <span className={`text-xs ${scrapeDone ? 'text-emerald-400 font-semibold' : 'text-indigo-300'}`}>{progressStatus || `Scraping... ${progress}%`}</span>
+                <span className={`text-xs ${scrapeDone ? 'text-emerald-400 font-bold' : 'text-slate-500'}`}>{progress}%</span>
               </div>
-              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-2 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: `${Math.min(progress, 100)}%` }} />
+              <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden relative">
+                <div className={`h-2.5 rounded-full transition-all duration-700 ease-out ${scrapeDone ? 'bg-gradient-to-r from-emerald-500 to-green-400 shadow-[0_0_12px_rgba(52,211,153,0.6)]' : 'bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 shadow-[0_0_8px_rgba(99,102,241,0.4)]'}`} style={{ width: `${Math.min(progress, 100)}%` }} />
+                {scrapeDone && <div className="absolute inset-0 bg-emerald-400/20 rounded-full animate-pulse" />}
               </div>
             </div>
           </div>
@@ -472,10 +487,17 @@ export default function Dashboard() {
 
           <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800 rounded-xl px-3 sm:px-4 py-2.5 gap-2">
             <span className="text-[11px] sm:text-xs font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> entries</span>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1">
-              <option value="score">⭐️ AI Score First</option>
-              <option value="newest">🕒 Recency First</option>
-            </select>
+            <div className="flex items-center gap-2">
+              {viewMode === 'trash' && totalTrashCount > 0 && (
+                <button onClick={clearTrashBin} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0">
+                  🗑 Clear All
+                </button>
+              )}
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1">
+                <option value="score">⭐️ AI Score First</option>
+                <option value="newest">🕒 Recency First</option>
+              </select>
+            </div>
           </div>
 
           {loading ? (
