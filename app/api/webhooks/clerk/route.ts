@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Webhook } from 'svix';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      return NextResponse.json({ error: 'CLERK_WEBHOOK_SECRET not configured' }, { status: 500 });
+    }
+
+    const svix = new Webhook(webhookSecret);
+    const payload = await req.text();
+    const headers = {
+      'svix-id': req.headers.get('svix-id') || '',
+      'svix-timestamp': req.headers.get('svix-timestamp') || '',
+      'svix-signature': req.headers.get('svix-signature') || '',
+    };
+
+    let body: any;
+    try {
+      body = svix.verify(payload, headers);
+    } catch {
+      return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 401 });
+    }
+
     const { type, data } = body;
 
     if (type === 'user.created' || type === 'user.updated') {
@@ -20,6 +40,12 @@ export async function POST(req: NextRequest) {
       });
 
       console.log(`[Clerk Webhook] User ${type}: ${clerkId} (${email})`);
+    }
+
+    if (type === 'user.deleted') {
+      const clerkId = data.id;
+      await prisma.user.deleteMany({ where: { clerkId } });
+      console.log(`[Clerk Webhook] User deleted: ${clerkId}`);
     }
 
     return NextResponse.json({ success: true });

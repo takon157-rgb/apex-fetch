@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 
@@ -17,22 +17,32 @@ function computeRelevance(text: string, targetRoles: string[], coreSkills: strin
   return score / checkTerms.length;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = await prisma.user.findUnique({ where: { clerkId: userId } });
   if (!user) return NextResponse.json({ leads: [] });
 
+  const url = new URL(req.url);
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const skip = (page - 1) * limit;
+
   const preferences = await prisma.userPreference.findUnique({ where: { userId: user.id } });
   const targetRoles = preferences?.targetRoles ?? [];
   const coreSkills = preferences?.coreSkills ?? [];
   const hasPreferences = targetRoles.length > 0 || coreSkills.length > 0;
 
-  const leads = await prisma.lead.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-  });
+  const [leads, total] = await Promise.all([
+    prisma.lead.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    }),
+    prisma.lead.count({ where: { userId: user.id } }),
+  ]);
 
   let filteredLeads = leads;
 
@@ -47,7 +57,10 @@ export async function GET() {
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
   }
 
-  return NextResponse.json({ leads: filteredLeads }, {
+  return NextResponse.json({
+    leads: filteredLeads,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  }, {
     headers: {
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       'Pragma': 'no-cache',

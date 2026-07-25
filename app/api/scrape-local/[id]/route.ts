@@ -4,17 +4,14 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-export async function PATCH(req: NextRequest) {
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
-    const url = new URL(req.url);
-    const parts = url.pathname.split('/').filter(Boolean);
-    const id = parts[parts.length - 1];
-
+    const { id } = params;
     if (!id) {
       return NextResponse.json({ success: false, error: 'Missing lead ID' }, { status: 400 });
     }

@@ -93,24 +93,21 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Scrape Local] Scraped ${scrapedBusinesses.length} businesses`);
 
+    const localUser = userId ? await prisma.user.findUnique({ where: { clerkId: userId } }) : null;
     const newLeads: any[] = [];
 
     for (const business of scrapedBusinesses) {
-      // Check if business already exists for this user
-      if (userId) {
-        const user = await prisma.user.findUnique({ where: { clerkId: userId } });
-        if (user) {
-          const existing = await prisma.localLead.findFirst({
-            where: {
-              userId: user.id,
-              businessName: { equals: business.name, mode: 'insensitive' },
-              city: { equals: business.city, mode: 'insensitive' },
-            },
-          });
-          if (existing) {
-            console.log(`[Scrape Local] Skipping duplicate: ${business.name}`);
-            continue;
-          }
+      if (localUser) {
+        const existing = await prisma.localLead.findFirst({
+          where: {
+            userId: localUser.id,
+            businessName: { equals: business.name, mode: 'insensitive' },
+            city: { equals: business.city, mode: 'insensitive' },
+          },
+        });
+        if (existing) {
+          console.log(`[Scrape Local] Skipping duplicate: ${business.name}`);
+          continue;
         }
       }
 
@@ -132,11 +129,8 @@ export async function POST(req: NextRequest) {
         status: 'PENDING',
       };
 
-      if (userId) {
-        const user = await prisma.user.findUnique({ where: { clerkId: userId } });
-        if (user) {
-          leadData.userId = user.id;
-        }
+      if (localUser) {
+        leadData.userId = localUser.id;
       }
 
       const saved = await prisma.localLead.create({ data: leadData });

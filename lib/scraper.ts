@@ -1,7 +1,7 @@
 import { prisma } from './prisma';
 import crypto from 'crypto';
 
-const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: string }[] = [
+export const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: string }[] = [
   { name: 'Reddit',         url: 'https://www.reddit.com/r/forhire+jobbit+remotejs+remotework+designjobs/.json?limit=50', type: 'json', parser: 'reddit' },
   { name: 'RemoteOK',       url: 'https://remoteok.com/api', type: 'api', parser: 'remoteok' },
   { name: 'Remotive',       url: 'https://remotive.com/feed', type: 'rss', parser: 'rss' },
@@ -44,7 +44,7 @@ function extractTag(xml: string, tag: string): string {
   return match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1').trim();
 }
 
-function cleanHtml(text: string): string {
+export function cleanHtml(text: string): string {
   if (!text) return '';
   return text
     .replace(/<[^>]*>/g, ' ')

@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { readScraperStatus } from '../../../lib/db';
 
 export async function GET() {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const status = readScraperStatus();
     return NextResponse.json(status, {
       headers: {

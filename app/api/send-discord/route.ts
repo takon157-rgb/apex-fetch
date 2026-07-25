@@ -1,10 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 
-export async function POST(req: Request) {
-  const { job } = await req.json();
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-
+export async function POST(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { job } = await req.json();
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+
     const response = await fetch(webhookUrl!, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -12,7 +16,7 @@ export async function POST(req: Request) {
         username: 'ApexFetch Dispatch',
         embeds: [{
           title: `ApexFetch Opportunity Alert: ${job.title}`,
-          description: job.proposal, // Sending your AI proposal
+          description: job.proposal,
           color: 0x5865F2,
           fields: [{ name: 'Budget', value: job.budget, inline: true }]
         }]

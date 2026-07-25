@@ -1,7 +1,8 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
-import { runScrapePipeline } from '@/lib/scraper';
+import { runScrapePipeline, SOURCES, cleanHtml } from '@/lib/scraper';
+import { sendJobDiscordAlert } from '@/lib/discord';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -36,39 +37,20 @@ export async function POST(req: NextRequest) {
       if (!lead || lead.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (!user.discordWebhookUrl) return NextResponse.json({ error: 'No Discord webhook configured' }, { status: 400 });
 
-      const stripHtml = (text: string) => text
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-        .replace(/\\n/g, '\n').replace(/\\t/g, ' ').replace(/\s+/g, ' ').trim();
+      await sendJobDiscordAlert(user.discordWebhookUrl, {
+        title: lead.title,
+        url: lead.url,
+        description: cleanHtml(lead.description || ''),
+        source: lead.source,
+        budget: lead.budget,
+        aiScore: lead.aiScore,
+      }, 'manual');
 
-      const discordPayload = {
-        embeds: [{
-          title: `🎯 Manual Lead: ${lead.title}`,
-          url: lead.url,
-          description: stripHtml(lead.description || '').substring(0, 800) || 'No description provided.',
-          color: 3447003,
-          fields: [
-            { name: 'Source', value: lead.source || 'Unknown', inline: true },
-            { name: 'Budget', value: lead.budget || 'Not Specified', inline: true },
-            { name: 'AI Score', value: `⭐ ${lead.aiScore}/10`, inline: true },
-          ],
-          footer: { text: 'Manual Dispatch from Dashboard' },
-          timestamp: new Date().toISOString(),
-        }],
-      };
-
-      const discordRes = await fetch(user.discordWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(discordPayload),
-      });
-
-      if (!discordRes.ok) throw new Error(`Discord returned ${discordRes.status}`);
       return NextResponse.json({ success: true });
     }
 
     const session = await prisma.scrapeSession.create({
-      data: { userId: user.id, totalSources: 14, status: 'running' },
+      data: { userId: user.id, totalSources: SOURCES.length, status: 'running' },
     });
 
     const preferences = await prisma.userPreference.findUnique({ where: { userId: user.id } });
@@ -90,9 +72,6 @@ export async function POST(req: NextRequest) {
       result = await runScrapePipeline(user.id, preferences, blacklist, selectedIndustry, nicheQuery, onProgress);
 
       if (user.discordWebhookUrl && result.leadsCreated > 0) {
-        const { sendJobDiscordAlert } = await import('@/lib/discord');
-        const stripHtml = (text: string) => text.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\\n/g, '\n').replace(/\s+/g, ' ').trim();
-
         const highScoring = await prisma.lead.findMany({
           where: { userId: user.id, aiScore: { gte: 7 }, createdAt: { gte: new Date(Date.now() - 60000) } },
           take: 5,
@@ -101,17 +80,19 @@ export async function POST(req: NextRequest) {
         for (const l of highScoring) {
           try {
             await sendJobDiscordAlert(user.discordWebhookUrl, {
-              title: l.title, url: l.url, description: stripHtml(l.description || ''),
+              title: l.title, url: l.url, description: cleanHtml(l.description || ''),
               source: l.source, budget: l.budget, aiScore: l.aiScore,
             }, 'auto');
             await new Promise(r => setTimeout(r, 500));
-          } catch {}
+          } catch (err) {
+            console.error('[Scrape] Discord dispatch error:', err);
+          }
         }
       }
 
       await prisma.scrapeSession.update({
         where: { id: session.id },
-        data: { status: 'completed', completedSources: 14, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },
+        data: { status: 'completed', completedSources: SOURCES.length, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },
       });
     } catch (err) {
       await prisma.scrapeSession.update({

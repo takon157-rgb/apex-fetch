@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { readPipelineSettings, writePipelineSettings } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const settings = readPipelineSettings();
     return NextResponse.json(settings, {
       headers: {
@@ -18,6 +22,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const payload = await req.json();
     const careerProfile = typeof payload.careerProfile === 'string' ? payload.careerProfile : undefined;
     const targetUrls = Array.isArray(payload.targetUrls) ? payload.targetUrls.map(String).filter(Boolean) : undefined;

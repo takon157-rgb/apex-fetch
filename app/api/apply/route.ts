@@ -1,29 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-declare global {
-  var globalStorage: any;
-  var globalProfile: any;
-}
-
 export async function POST(req: NextRequest) {
   try {
+    const { userId: clerkId } = await auth();
+    if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const user = await prisma.user.findUnique({ where: { clerkId } });
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
     const payload = await req.json().catch(() => ({}));
     if (!payload || !payload.id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
 
-    const job = globalThis.globalStorage?.jobs?.find((j: any) => j.id === payload.id);
-    if (!job) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    const lead = await prisma.lead.findFirst({
+      where: { id: payload.id, userId: user.id },
+    });
+    if (!lead) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
 
-    // Attach application info
-    job.applied = true;
-    job.application = {
-      appliedAt: new Date().toISOString(),
-      profile: globalThis.globalProfile || null,
-      note: payload.note || 'Auto-applied via dashboard'
-    };
+    await prisma.lead.update({
+      where: { id: payload.id },
+      data: {
+        applied: true,
+        appliedAt: new Date(),
+        status: 'applied',
+      },
+    });
 
-    return NextResponse.json({ success: true, job });
+    return NextResponse.json({ success: true, id: payload.id });
   } catch (err) {
     return NextResponse.json({ error: true, message: (err as Error).message }, { status: 500 });
   }

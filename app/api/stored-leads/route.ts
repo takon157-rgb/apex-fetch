@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { getStoredLeads, saveStoredLead, removeStoredLead } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const leads = getStoredLeads();
     return NextResponse.json({ success: true, leads });
   } catch (err) {
@@ -14,6 +18,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await req.json();
     const { id, businessName, phoneNumber, strategy, niche, city } = body;
     if (!businessName) return NextResponse.json({ success: false, error: 'Missing businessName' }, { status: 400 });
@@ -37,6 +44,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const url = new URL(req.url);
     const id = url.searchParams.get('id');
     if (!id) return NextResponse.json({ success: false, error: 'Missing id' }, { status: 400 });

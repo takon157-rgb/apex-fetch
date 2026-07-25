@@ -1,21 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
-import { readStoredJobs, writeStoredJobs } from '../../../lib/db';
+import { writeStoredJobs, readStoredJobs } from '../../../lib/db';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const cronSecret = process.env.CRON_SECRET;
+    const authHeader = req.headers.get('authorization');
+    const isCronAuthed = cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+    if (!isCronAuthed) {
+      const session = await auth();
+      if (!session.userId) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
     const body = await req.json().catch(() => ({}));
     const { jobs, userId: clerkId } = body;
 
-    if (!globalThis.globalStorage) {
-      globalThis.globalStorage = { jobs: readStoredJobs() };
-    }
-
     if (jobs && Array.isArray(jobs)) {
-      globalThis.globalStorage.jobs = [...jobs, ...globalThis.globalStorage.jobs];
-      writeStoredJobs(globalThis.globalStorage.jobs);
+      writeStoredJobs([...jobs, ...readStoredJobs()]);
 
       if (clerkId) {
         try {

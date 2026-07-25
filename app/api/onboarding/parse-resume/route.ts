@@ -162,12 +162,12 @@ export async function POST(req: NextRequest) {
       email: user.email || '',
       resumeFileName: originalName,
       resumeBase64: pdfBase64,
-      resumeText: `[Parsed via Gemini - ${originalName}]`,
+      resumeText: parsed.summary,
     },
     update: {
       resumeFileName: originalName,
       resumeBase64: pdfBase64,
-      resumeText: `[Parsed via Gemini - ${originalName}]`,
+      resumeText: parsed.summary,
     },
   })
 
