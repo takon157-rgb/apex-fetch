@@ -134,7 +134,23 @@ export default function OnboardingPage() {
     }
   }
 
-  const handleFinish = () => {
+  const applyReferral = async () => {
+    const ref = localStorage.getItem('apexfetch_ref')
+    if (ref) {
+      try {
+        await fetch('/api/referral', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: ref }),
+        })
+      } catch {} finally {
+        localStorage.removeItem('apexfetch_ref')
+      }
+    }
+  }
+
+  const handleFinish = async () => {
+    await applyReferral()
     router.push('/')
   }
 
@@ -175,6 +191,7 @@ export default function OnboardingPage() {
 
       if (!res.ok) throw new Error('Failed to save')
 
+      await applyReferral()
       router.push('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save preferences')

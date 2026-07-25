@@ -354,6 +354,18 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        {/* Referral Program */}
+        <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-8 shadow-xl backdrop-blur">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-amber-400">Referral Program</p>
+            <h2 className="mt-2 text-2xl font-bold text-white">Invite Friends, Get Credits</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Share your referral link below. When someone signs up using it, you both get <strong className="text-amber-400">5 bonus credits</strong>.
+            </p>
+          </div>
+          <ReferralSection />
+        </div>
+
         {/* Target Sites Manager */}
         <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-8 shadow-xl backdrop-blur">
           <div>
@@ -460,6 +472,35 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReferralSection() {
+  const [referralCode, setReferralCode] = useState('');
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    fetch('/api/referral').then(r => r.json()).then(d => {
+      if (d.referralCode) setReferralCode(d.referralCode);
+    }).catch(() => {});
+  }, []);
+  const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/sign-up?ref=${referralCode}` : '';
+  return (
+    <div className="mt-6 space-y-4">
+      {referralCode ? (
+        <>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input readOnly value={shareUrl} className="flex-1 rounded-xl border border-slate-800/50 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 outline-none select-all" />
+            <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+              className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 text-sm font-semibold text-white transition">
+              {copied ? 'Copied!' : 'Copy Link'}
+            </button>
+          </div>
+          <p className="text-xs text-slate-500">Share this link — you get 5 credits per signup.</p>
+        </>
+      ) : (
+        <div className="animate-pulse h-10 rounded-xl bg-slate-800/50" />
+      )}
     </div>
   );
 }

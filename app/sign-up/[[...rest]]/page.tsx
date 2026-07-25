@@ -7,6 +7,10 @@ import { useEffect, useState } from 'react';
 export default function SignUpPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref) localStorage.setItem('apexfetch_ref', ref);
+  }, []);
 
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-slate-950">
