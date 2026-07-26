@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
 import crypto from 'crypto';
+import * as cheerio from 'cheerio';
 
 export const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: string }[] = [
   { name: 'Reddit',         url: 'https://www.reddit.com/r/forhire+jobbit+remotejs+remotework+designjobs/.json?limit=50', type: 'json', parser: 'reddit' },
@@ -141,6 +142,103 @@ function isBlocked(title: string, desc: string, userBlacklist: string[]): boolea
   return all.some(k => text.includes(k));
 }
 
+const CAREER_PATHS = ['/careers', '/jobs', '/about/careers', '/about-us/careers', '/about/jobs', '/join-us', '/careers.html', '/open-positions'];
+
+function extractDomain(url: string): string | null {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return hostname;
+  } catch { return null; }
+}
+
+function commonCareerUrls(domain: string): string[] {
+  return CAREER_PATHS.map(p => `https://${domain}${p}`);
+}
+
+async function scrapeCareerPage(url: string): Promise<ScrapedItem[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 ApexFetch/2.0 CareerScraper' },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    const items: ScrapedItem[] = [];
+    const jobKeywords = ['job', 'position', 'opening', 'career', 'hiring', 'role', 'vacancy'];
+
+    $('a').each((_, el) => {
+      const text = $(el).text().trim();
+      const href = $(el).attr('href');
+      if (!text || !href || text.length > 150 || text.length < 5) return;
+      const lower = text.toLowerCase();
+      const isJobLink = jobKeywords.some(k => lower.includes(k)) || jobKeywords.some(k => href.toLowerCase().includes(k));
+      if (!isJobLink) return;
+      const fullUrl = href.startsWith('http') ? href : new URL(href, url).href;
+      if (!fullUrl.startsWith('http')) return;
+      const domain = extractDomain(url);
+      items.push({
+        title: cleanHtml(text),
+        description: cleanHtml(text),
+        url: fullUrl,
+        source: domain ? `Direct: ${domain}` : 'Direct Career Page',
+        budget: 'Open Terms',
+      });
+    });
+
+    $('h1, h2, h3, h4, .job-title, .position-title, [class*=job], [class*=position], [class*=role]').each((_, el) => {
+      const text = $(el).text().trim();
+      if (!text || text.length > 150 || text.length < 5) return;
+      const parentLink = $(el).closest('a');
+      const linkUrl = parentLink.length ? parentLink.attr('href') : null;
+      if (linkUrl) {
+        const fullUrl = linkUrl.startsWith('http') ? linkUrl : new URL(linkUrl, url).href;
+        const domain = extractDomain(url);
+        items.push({
+          title: cleanHtml(text),
+          description: cleanHtml(text),
+          url: fullUrl,
+          source: domain ? `Direct: ${domain}` : 'Direct Career Page',
+          budget: 'Open Terms',
+        });
+      }
+    });
+
+    return items.filter((item, i, arr) => arr.findIndex(x => x.url === item.url) === i).slice(0, 20);
+  } catch { return []; }
+}
+
+export async function discoverCompanyJobs(urls: string[]): Promise<ScrapedItem[]> {
+  const domains = new Set<string>();
+  for (const url of urls) {
+    const domain = extractDomain(url);
+    if (domain) domains.add(domain);
+  }
+
+  const blacklisted = new Set(['reddit.com', 'linkedin.com', 'indeed.com', 'glassdoor.com', 'google.com', 'facebook.com', 'twitter.com', 'remoteok.com', 'weworkremotely.com']);
+  const targetDomains = [...domains].filter(d => !blacklisted.has(d)).slice(0, 20);
+
+  if (targetDomains.length === 0) return [];
+
+  const allItems: ScrapedItem[] = [];
+  let idx = 0;
+  for (const domain of targetDomains) {
+    idx++;
+    const urls = commonCareerUrls(domain);
+    for (const careerUrl of urls) {
+      await new Promise(r => setTimeout(r, 800));
+      const items = await scrapeCareerPage(careerUrl);
+      allItems.push(...items);
+    }
+    if (idx >= 10) break;
+  }
+
+  return allItems.filter((item, i, arr) => arr.findIndex(x => x.url === item.url) === i).slice(0, 100);
+}
+
 export async function runScrapePipeline(
   userId: string,
   preferences: { targetRoles: string[]; coreSkills: string[]; parsedResumeSummary: string | null } | null,
@@ -185,6 +283,14 @@ export async function runScrapePipeline(
       completed++;
       sourceResults.push({ source: source.name, success: false, count: 0, error: String(err) });
       await onProgress(completed, SOURCES.length, source.name, allItems.length);
+    }
+  }
+
+  const companyLeadUrls = allItems.filter(i => i.url).map(i => i.url);
+  const careerPageLeads = await discoverCompanyJobs(companyLeadUrls);
+  for (const lead of careerPageLeads) {
+    if (!isBlocked(lead.title, lead.description, blacklist)) {
+      allItems.push(lead);
     }
   }
 
