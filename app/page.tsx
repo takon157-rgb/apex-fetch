@@ -50,6 +50,7 @@ export default function Dashboard() {
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistInput, setBlacklistInput] = useState('');
   const [showBlacklist, setShowBlacklist] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
 
   const industries = ['All', 'Entry Level', 'AI Automation', 'Video Editing', 'Appointment Setter', 'Social Media', 'Virtual Assistant'];
 
@@ -74,6 +75,7 @@ export default function Dashboard() {
     if (!onboardingChecked) return;
     fetchOpportunities();
     fetchBlacklist();
+    fetch('/api/me').then(r => r.ok && r.json()).then(d => { if (d?.user) setIsSubscribed(d.user.isSubscribed); }).catch(() => {});
   }, [onboardingChecked]);
 
   useEffect(() => {
@@ -397,10 +399,12 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="rounded-xl bg-gradient-to-br from-indigo-600/10 to-violet-600/10 border border-indigo-500/20 p-4 space-y-3">
-            <div><p className="text-[11px] font-bold text-indigo-300">Unlock Full Access</p><p className="text-[10px] text-slate-400 mt-1">Get unlimited leads, priority AI analysis, and Discord alerts.</p></div>
-            <Link href="/profile" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20">Upgrade Plan</Link>
-          </div>
+          {!isSubscribed && (
+            <div className="rounded-xl bg-gradient-to-br from-indigo-600/10 to-violet-600/10 border border-indigo-500/20 p-4 space-y-3">
+              <div><p className="text-[11px] font-bold text-indigo-300">Unlock Full Access</p><p className="text-[10px] text-slate-400 mt-1">Get unlimited leads, priority AI analysis, and Discord alerts.</p></div>
+              <Link href="/profile" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20">Upgrade Plan</Link>
+            </div>
+          )}
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Filter Platforms</span>
