@@ -23,6 +23,7 @@ model User {
   discordWebhookUrl String?      @db.Text
   isSubscribed      Boolean      @default(false)
   creditsRemaining  Int          @default(10)
+  paystackCustomerCode String?
   referralCode      String       @unique @default(uuid())
   referredBy        String?
   createdAt         DateTime     @default(now())

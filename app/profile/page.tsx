@@ -354,6 +354,15 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        {/* Subscription & Billing */}
+        <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-8 shadow-xl backdrop-blur">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">Billing</p>
+            <h2 className="mt-2 text-2xl font-bold text-white">Subscription & Credits</h2>
+          </div>
+          <BillingSection />
+        </div>
+
         {/* Referral Program */}
         <div className="rounded-3xl border border-slate-800/70 bg-slate-900/70 p-8 shadow-xl backdrop-blur">
           <div>
@@ -472,6 +481,62 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function BillingSection() {
+  const [subscribed, setSubscribed] = useState(false);
+  const [credits, setCredits] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [upgrading, setUpgrading] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(d => {
+        if (d.user) {
+          setSubscribed(d.user.isSubscribed);
+          setCredits(d.user.creditsRemaining);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleUpgrade = async () => {
+    setUpgrading(true);
+    try {
+      const res = await fetch('/api/paystack/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'pro' }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } catch {}
+    setUpgrading(false);
+  };
+
+  if (loading) return <div className="mt-6 animate-pulse h-20 rounded-xl bg-slate-800/50" />;
+
+  return (
+    <div className="mt-6 space-y-4">
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-4 flex-1 min-w-[140px]">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Credits</p>
+          <p className="text-2xl font-bold text-white mt-1">{credits}</p>
+        </div>
+        <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-4 flex-1 min-w-[140px]">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Plan</p>
+          <p className="text-2xl font-bold text-white mt-1">{subscribed ? 'Pro ⚡' : 'Free'}</p>
+        </div>
+      </div>
+      {!subscribed && (
+        <button onClick={handleUpgrade} disabled={upgrading} className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50">
+          {upgrading ? 'Loading...' : 'Upgrade to Pro — unlimited scrapes'}
+        </button>
+      )}
     </div>
   );
 }
