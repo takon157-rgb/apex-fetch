@@ -31,12 +31,16 @@ export default function AdminPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [creditInputs, setCreditInputs] = useState<Record<string, string>>({});
 
-  const isAdmin = isLoaded && user?.id === (process.env.NEXT_PUBLIC_ADMIN_CLERK_ID || '');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (isLoaded && !isAdmin) { router.push('/'); return; }
-    if (isAdmin) fetchStats();
-  }, [isLoaded, isAdmin]);
+    if (!isLoaded) return;
+    fetch('/api/admin/users')
+      .then(r => { if (r.ok) { setIsAdmin(true); fetchStats(); } else { router.push('/'); } })
+      .catch(() => router.push('/'))
+      .finally(() => setChecked(true));
+  }, [isLoaded]);
 
   const fetchStats = async () => {
     setLoading(true);

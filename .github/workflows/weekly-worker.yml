@@ -1,0 +1,16 @@
+name: Weekly Trending Worker
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger weekly trend discovery
+        run: |
+          curl -s -X GET "${{ secrets.APP_URL }}/api/cron/worker" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP %{http_code}"

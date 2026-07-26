@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import { writeStoredJobs, readStoredJobs } from '../../../lib/db';
+import { rateLimitByIp } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const rl = rateLimitByIp(req, 20, 60000);
+    if (!rl.allowed) return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = req.headers.get('authorization');
     const isCronAuthed = cronSecret && authHeader === `Bearer ${cronSecret}`;
@@ -19,10 +23,21 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { jobs, userId: clerkId } = body;
+    const rawJobs = Array.isArray(body.jobs) ? body.jobs.slice(0, 50) : [];
+    const clerkId = typeof body.userId === 'string' && body.userId.length < 100 ? body.userId : '';
 
-    if (jobs && Array.isArray(jobs)) {
-      writeStoredJobs([...jobs, ...readStoredJobs()]);
+    if (rawJobs.length > 0) {
+      const jobs = rawJobs.map((j: any) => ({
+        title: typeof j.title === 'string' ? j.title.substring(0, 300) : 'Unknown Position',
+        description: typeof j.description === 'string' ? j.description.substring(0, 2000) : '',
+        budget: typeof j.budget === 'string' ? j.budget.substring(0, 100) : 'Open Terms',
+        source: typeof j.source === 'string' ? j.source.substring(0, 100) : 'External',
+        url: typeof j.url === 'string' ? j.url.substring(0, 1000) : '',
+        score: typeof j.score === 'number' ? Math.min(10, Math.max(0, j.score)) : 5,
+        proposal: typeof j.proposal === 'string' ? j.proposal.substring(0, 2000) : '',
+      }));
+
+      writeStoredJobs([...jobs, ...readStoredJobs()].slice(0, 500));
 
       if (clerkId) {
         try {

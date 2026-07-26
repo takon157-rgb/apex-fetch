@@ -1,0 +1,16 @@
+name: Daily Scrape
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger daily scrape cron
+        run: |
+          curl -s -X GET "${{ secrets.APP_URL }}/api/cron/scrape" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP %{http_code}"

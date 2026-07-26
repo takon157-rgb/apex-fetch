@@ -3,22 +3,32 @@ import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import { runScrapePipeline, SOURCES, cleanHtml } from '@/lib/scraper';
 import { sendJobDiscordAlert } from '@/lib/discord';
+import { rateLimitByUser } from '@/lib/rate-limit';
+import { assertString } from '@/lib/validate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
+
+const SCRAPE_COST = 1;
 
 export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    const rl = rateLimitByUser(clerkId, 10, 60000);
+    if (!rl.allowed) return NextResponse.json({ error: 'Too many requests. Try again in a minute.' }, { status: 429 });
+
     const user = await prisma.user.findUnique({ where: { clerkId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
     const payload = await req.json().catch(() => ({}));
-    const { action, id, status: newStatus, industry, query } = payload;
+    const action = assertString(payload.action);
+    const id = assertString(payload.id);
+    const newStatus = assertString(payload.status, 50);
 
     if (action === 'update_status') {
+      if (!id || !newStatus) return NextResponse.json({ error: 'Missing id or status' }, { status: 400 });
       const lead = await prisma.lead.findUnique({ where: { id } });
       if (!lead || lead.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       await prisma.lead.update({ where: { id }, data: { deleted: newStatus === 'deleted', status: newStatus } });
@@ -26,6 +36,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'purge') {
+      if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
       const lead = await prisma.lead.findUnique({ where: { id } });
       if (!lead || lead.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       await prisma.lead.delete({ where: { id } });
@@ -33,6 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'discord_dispatch') {
+      if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
       const lead = await prisma.lead.findUnique({ where: { id } });
       if (!lead || lead.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
       if (!user.discordWebhookUrl) return NextResponse.json({ error: 'No Discord webhook configured' }, { status: 400 });
@@ -49,6 +61,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    if (!user.isSubscribed && user.creditsRemaining < SCRAPE_COST) {
+      return NextResponse.json({ error: 'Insufficient credits. Upgrade your plan or wait for reset.' }, { status: 403 });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { creditsRemaining: user.isSubscribed ? undefined : { decrement: SCRAPE_COST } },
+    });
+
     const session = await prisma.scrapeSession.create({
       data: { userId: user.id, totalSources: SOURCES.length, status: 'running' },
     });
@@ -57,8 +78,8 @@ export async function POST(req: NextRequest) {
     const blacklistRows = await prisma.blacklistedKeyword.findMany({ where: { userId: user.id } });
     const blacklist = blacklistRows.map(b => b.keyword);
 
-    const selectedIndustry = (payload.industry as string) || 'All';
-    const nicheQuery = (payload.query as string) || '';
+    const selectedIndustry = assertString(payload.industry) || 'All';
+    const nicheQuery = assertString(payload.query);
 
     const onProgress = async (completed: number, total: number, current: string, leadsFound: number) => {
       await prisma.scrapeSession.update({
