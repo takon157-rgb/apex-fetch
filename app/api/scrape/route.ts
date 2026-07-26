@@ -67,55 +67,43 @@ export async function POST(req: NextRequest) {
       });
     };
 
-    let result: { leadsCreated: number; leadsPruned: number; sourceResults: { source: string; success: boolean; count: number; error?: string }[] };
-    try {
-      result = await runScrapePipeline(user.id, preferences, blacklist, selectedIndustry, nicheQuery, onProgress);
+    runScrapePipeline(user.id, preferences, blacklist, selectedIndustry, nicheQuery, onProgress)
+      .then(async (result) => {
+        if (user.discordWebhookUrl && result.leadsCreated > 0) {
+          const highScoring = await prisma.lead.findMany({
+            where: { userId: user.id, aiScore: { gte: 7 }, createdAt: { gte: new Date(Date.now() - 60000) } },
+            take: 5,
+          });
 
-      if (user.discordWebhookUrl && result.leadsCreated > 0) {
-        const highScoring = await prisma.lead.findMany({
-          where: { userId: user.id, aiScore: { gte: 7 }, createdAt: { gte: new Date(Date.now() - 60000) } },
-          take: 5,
-        });
-
-        for (const l of highScoring) {
-          try {
-            await sendJobDiscordAlert(user.discordWebhookUrl, {
-              title: l.title, url: l.url, description: cleanHtml(l.description || ''),
-              source: l.source, budget: l.budget, aiScore: l.aiScore,
-            }, 'auto');
-            await new Promise(r => setTimeout(r, 500));
-          } catch (err) {
-            console.error('[Scrape] Discord dispatch error:', err);
+          for (const l of highScoring) {
+            try {
+              await sendJobDiscordAlert(user.discordWebhookUrl, {
+                title: l.title, url: l.url, description: cleanHtml(l.description || ''),
+                source: l.source, budget: l.budget, aiScore: l.aiScore,
+              }, 'auto');
+              await new Promise(r => setTimeout(r, 500));
+            } catch (err) {
+              console.error('[Scrape] Discord dispatch error:', err);
+            }
           }
         }
-      }
 
-      await prisma.scrapeSession.update({
-        where: { id: session.id },
-        data: { status: 'completed', completedSources: SOURCES.length, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },
+        await prisma.scrapeSession.update({
+          where: { id: session.id },
+          data: { status: 'completed', completedSources: SOURCES.length, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },
+        });
+      })
+      .catch(async (err) => {
+        console.error('[Scrape] Pipeline error:', err);
+        await prisma.scrapeSession.update({
+          where: { id: session.id },
+          data: { status: 'error', error: String(err), completedAt: new Date() },
+        });
       });
-    } catch (err) {
-      await prisma.scrapeSession.update({
-        where: { id: session.id },
-        data: { status: 'error', error: String(err), completedAt: new Date() },
-      });
-      throw err;
-    }
 
-    const totalLeads = await prisma.lead.findMany({
-      where: { userId: user.id, deleted: false },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const sourcesWithNew = result.sourceResults.filter(s => s.success && s.count > 0).map(s => s.source);
     return NextResponse.json({
       success: true,
       sessionId: session.id,
-      leadsCreated: result.leadsCreated,
-      leadsPruned: result.leadsPruned,
-      sources: sourcesWithNew,
-      stats: `Found ${result.leadsCreated} new leads across ${sourcesWithNew.length} sources: ${sourcesWithNew.join(', ') || 'none'}`,
-      leads: totalLeads,
     });
   } catch (err: unknown) {
     console.error('[Scrape] Fatal:', err);

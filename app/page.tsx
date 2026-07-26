@@ -46,6 +46,7 @@ export default function Dashboard() {
   const [lastScrapeStats, setLastScrapeStats] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistInput, setBlacklistInput] = useState('');
   const [showBlacklist, setShowBlacklist] = useState(false);
@@ -84,24 +85,29 @@ export default function Dashboard() {
         const data = await res.json();
         setProgress(Math.min(data.progress, 95));
         setProgressStatus(data.currentSource ? `Scraping ${data.currentSource}...` : 'Processing...');
-        if (data.status === 'completed' || data.status === 'error') {
-          clearInterval(interval);
-          setProgress(100);
-          setScrapeDone(true);
-          if (data.status === 'completed') {
-            setProgressStatus('Done! ✅');
-            const leadsRes = await fetch('/api/leads');
-            if (leadsRes.ok) {
-              const leadsData = await leadsRes.json();
-              const dbLeads = leadsData?.leads || [];
-              setJobs(dbLeads.map(mapDbLeadToJob));
+          if (data.status === 'completed' || data.status === 'error') {
+            clearInterval(interval);
+            setProgress(100);
+            setScrapeDone(true);
+            if (data.status === 'completed') {
+              setProgressStatus('Done! ✅');
+              const leadsRes = await fetch('/api/leads');
+              if (leadsRes.ok) {
+                const leadsData = await leadsRes.json();
+                const dbLeads = leadsData?.leads || [];
+                setJobs(dbLeads.map(mapDbLeadToJob));
+              }
+              setTimeout(() => { setProgress(0); setScrapeDone(false); }, 2500);
             }
-            setTimeout(() => { setProgress(0); setScrapeDone(false); }, 2500);
+            setScraping(false);
+            setSessionId(null);
+            if (data.status === 'error') {
+              const errMsg = data.error || 'Scrape failed';
+              setScrapeError(errMsg);
+              setProgressStatus(`Error: ${errMsg}`);
+              setTimeout(() => { setProgress(0); setScrapeDone(false); }, 4000);
+            }
           }
-          setScraping(false);
-          setSessionId(null);
-          if (data.status === 'error') { setProgressStatus(`Error: ${data.error}`); setTimeout(() => { setProgress(0); setScrapeDone(false); }, 4000); }
-        }
       } catch { clearInterval(interval); setScraping(false); setSessionId(null); }
     }, 1500);
     return () => clearInterval(interval);
@@ -174,6 +180,7 @@ export default function Dashboard() {
 
   const handleRunScraperPipeline = async () => {
     setScraping(true);
+    setScrapeError(null);
     setProgress(5);
     setProgressStatus('Initializing scraper...');
     setLastScrapeStats(null);
@@ -183,15 +190,16 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'scrape', industry: selectedIndustry, query: nicheQuery }),
       });
-      if (response.ok) {
-        const data = await response.json();
+      const data = await response.json();
+      if (response.ok && data.sessionId) {
         setSessionId(data.sessionId);
-        setLastScrapeStats(data.stats);
       } else {
+        setScrapeError(data?.error || data?.message || 'Scrape failed to start');
         setScraping(false);
+        setProgress(0);
       }
     } catch (err) {
-      console.error('Pipeline Error:', err);
+      setScrapeError('Network error — check your connection');
       setScraping(false);
       setProgress(0);
     }
@@ -465,7 +473,14 @@ export default function Dashboard() {
           </div>
         )}
 
-        {lastScrapeStats && progress === 0 && (
+        {scrapeError && (
+          <div className="px-6 py-3 bg-rose-500/10 border-b border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+            <span>⚠️</span> {scrapeError}
+            <button onClick={() => setScrapeError(null)} className="ml-auto text-rose-400 hover:text-rose-200">✕</button>
+          </div>
+        )}
+
+        {lastScrapeStats && progress === 0 && !scrapeError && (
           <div className="px-6 py-2 bg-indigo-500/10 border-b border-indigo-500/20 text-xs text-indigo-300">{lastScrapeStats}</div>
         )}
 
