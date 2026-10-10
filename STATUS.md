@@ -30,6 +30,13 @@
 - Removed Reddit + CryptoJobsList (both 403-blocked; Reddit was mostly "[for hire]" noise).
 - `fetchWithRetry` now throws on 4xx so blocked/dead sources are recorded as failures, not silent "0 leads".
 
+**Phase 3 — backend ops** (committed)
+- `lib/maintenance.ts`: `cleanupStaleLeads` (soft-delete listings older than 45d) + `getSourceHealth` (per-source success rate/leads/errors).
+- `api/health` (public liveness/readiness — DB up/down) + `api/source-health` (authed per-user scraper health) for the daily health check.
+- Wired stale-lead cleanup into the daily cron; exposed `/api/health` publicly.
+- Removed dead routes `api/apply`, `api/discord`, `api/send-discord`.
+- `BACKUP.md` — backup/restore/rollback runbook.
+
 ## Still broken / blocked ⛔
 
 1. **Supabase is paused** — owner must unpause project `reoclbbidpqcvpsfhggl` before the DB works at all.
@@ -39,9 +46,9 @@
 
 ## What's next 🚀
 
-- **Phase 3:** caching, Redis rate limiting, stale-job cleanup, Sentry logging, backup runbook.
-- **Phase 4 (delegate to sub-agents):** full UI redesign — RemoteOK salary/tag/filter/sort core, saved jobs + application tracker, saved-search email alerts, accessibility pass.
+- **Phase 4 (in progress, sub-agent):** full UI redesign — RemoteOK salary/tag/filter/sort core, saved jobs + application tracker, saved-search email alerts, accessibility pass.
 - **Phase 5:** QA sub-agent (E2E + manual), then deploy gate with rollback plan.
+- **Deferred (needs accounts):** Redis rate limiting (Upstash), Sentry error tracking, Paystack billing, Google Places local-leads.
 
 ## Blocked on owner (please do when convenient)
 
