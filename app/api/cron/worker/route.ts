@@ -1,40 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { discoverCompanyJobs } from '@/lib/scraper';
+import { discoverCompanyJobs, extractCompanyDomains } from '@/lib/scraper';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const TREND_SOURCES = [
-  'https://remoteok.com/remote-jobs',
-  'https://weworkremotely.com',
-  'https://remotive.io/remote-jobs',
-];
-
-async function delay(ms: number) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-async function discoverTrendingTargets(): Promise<string[]> {
-  const hosts = new Set<string>();
-  for (const url of TREND_SOURCES) {
-    try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 ApexFetch/2.0' } });
-      if (!res.ok) continue;
-      const html = await res.text();
-      const matches = Array.from(html.matchAll(/https?:\/\/([^\/"'\s]+)\//gi));
-      matches.slice(0, 120).forEach((m) => {
-        const hostname = m[1].replace(/^www\./, '');
-        if (!TREND_SOURCES.some(s => hostname.includes(new URL(s).hostname.replace(/^www\./, '')))) {
-          hosts.add(hostname);
-        }
-      });
-      await delay(350);
-    } catch {}
-  }
-  return Array.from(hosts).slice(0, 30);
-}
-
+/**
+ * Weekly "trend" worker: derive company domains from the job URLs we've already
+ * scraped (not from page HTML, which previously harvested asset CDNs), then
+ * discover career-page openings for subscribed users.
+ */
 export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');
@@ -43,17 +18,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('[Cron Worker] Starting weekly trend discovery...');
-    const trending = await discoverTrendingTargets();
-    console.log(`[Cron Worker] Found ${trending.length} trending domains`);
+    // Pull a sample of recent job URLs from all users to derive company domains.
+    const recentLeads = await prisma.lead.findMany({
+      where: { deleted: false },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: { url: true },
+    });
 
-    let totalLeadsCreated = 0;
-    const results: { domain: string; leads: number }[] = [];
+    const domains = extractCompanyDomains(recentLeads.map(l => l.url));
+    const companyUrls = domains.map(d => `https://${d}`);
 
-    const companyUrls = trending.map(d => `https://${d}`);
-    const allLeads = await discoverCompanyJobs(companyUrls);
+    const allLeads = companyUrls.length > 0 ? await discoverCompanyJobs(companyUrls) : [];
 
     const users = await prisma.user.findMany({ where: { isSubscribed: true } });
+    let totalLeadsCreated = 0;
 
     for (const user of users) {
       let userLeads = 0;
@@ -67,30 +46,33 @@ export async function GET(req: NextRequest) {
           data: {
             userId: user.id,
             title: lead.title,
+            company: lead.company || null,
             description: lead.description,
-            budget: lead.budget,
+            budget: lead.salaryMin ? `$${lead.salaryMin}` : 'Open Terms',
+            salaryMin: lead.salaryMin ?? null,
+            salaryMax: lead.salaryMax ?? null,
+            location: lead.location || null,
+            jobType: lead.jobType || null,
+            postedAt: lead.postedAt ? new Date(lead.postedAt) : new Date(),
+            tags: lead.tags || [],
             source: lead.source,
             url: lead.url,
             aiScore: 6,
+            matchReason: 'Discovered from company career page',
             status: 'active',
           },
         });
         userLeads++;
       }
       totalLeadsCreated += userLeads;
-      results.push({ domain: '(trending)', leads: userLeads });
-      await delay(500);
     }
-
-    console.log(`[Cron Worker] Complete. Created ${totalLeadsCreated} leads across ${users.length} users.`);
 
     return NextResponse.json({
       success: true,
-      trendingDomainsFound: trending.length,
+      domainsFound: domains.length,
       companyLeadsFound: allLeads.length,
       usersProcessed: users.length,
       totalLeadsCreated,
-      results,
     });
   } catch (err) {
     console.error('[Cron Worker] Error:', err);

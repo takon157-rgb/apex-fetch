@@ -57,11 +57,22 @@ model Lead {
   id            String   @id @default(uuid())
   userId        String
   title         String
+  company       String?
   description   String   @db.Text
   budget        String   @default("")
+  salaryMin     Float?
+  salaryMax     Float?
+  salaryCurrency String? @default("USD")
+  location      String?
+  jobType       String?
+  remote        Boolean? @default(true)
+  timezone      String?
+  postedAt      DateTime?
+  tags          String[] @default([])
   source        String
   url           String
   aiScore       Int      @default(0)
+  matchReason   String?  @db.Text
   proposalDraft String?  @db.Text
   status        String   @default("active")
   applied       Boolean  @default(false)
@@ -71,6 +82,9 @@ model Lead {
   createdAt     DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, postedAt])
+  @@index([url])
 }
 
 model ReviewedJob {

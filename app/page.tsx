@@ -8,15 +8,23 @@ import { useUser } from '@clerk/nextjs';
 interface JobOpportunity {
   id: string;
   title: string;
+  company: string | null;
   description: string;
   budget: string;
+  salaryMin: number | null;
+  salaryMax: number | null;
+  salaryCurrency: string | null;
+  location: string | null;
+  jobType: string | null;
+  remote: boolean | null;
+  postedAt: string | null;
+  tags: string[];
+  matchReason: string | null;
   source: string;
   url: string;
   postedTime: string;
   score: number;
   summary: string;
-  profitability: string;
-  difficulty: string;
   proposal: string;
   status: string;
   applied: boolean;
@@ -115,25 +123,38 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [sessionId, scraping]);
 
-  const mapDbLeadToJob = (lead: any): JobOpportunity => ({
-    id: lead.id,
-    title: lead.title,
-    description: lead.description,
-    budget: lead.budget || 'Open Terms',
-    source: lead.source,
-    url: lead.url,
-    postedTime: lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : 'Just fetched',
-    score: lead.aiScore || 0,
-    summary: lead.description?.substring(0, 200) || '',
-    profitability: (lead.aiScore || 0) >= 7 ? 'High' : (lead.aiScore || 0) >= 4 ? 'Medium' : 'Low',
-    difficulty: 'Medium',
-    proposal: lead.proposalDraft || '',
-    status: lead.status || 'active',
-    applied: lead.applied || false,
-    tracked: lead.tracked || false,
-    deleted: lead.deleted || false,
-    createdAt: lead.createdAt,
-  });
+  const mapDbLeadToJob = (lead: any): JobOpportunity => {
+    const salary = lead.salaryMin != null
+      ? `$${lead.salaryMin.toLocaleString()}${lead.salaryMax != null ? ` – $${lead.salaryMax.toLocaleString()}` : ''}`
+      : (lead.budget || 'Open Terms');
+    return {
+      id: lead.id,
+      title: lead.title,
+      company: lead.company || null,
+      description: lead.description,
+      budget: salary,
+      salaryMin: lead.salaryMin ?? null,
+      salaryMax: lead.salaryMax ?? null,
+      salaryCurrency: lead.salaryCurrency || null,
+      location: lead.location || null,
+      jobType: lead.jobType || null,
+      remote: lead.remote ?? null,
+      postedAt: lead.postedAt || null,
+      tags: lead.tags || [],
+      matchReason: lead.matchReason || null,
+      source: lead.source,
+      url: lead.url,
+      postedTime: lead.postedAt ? new Date(lead.postedAt).toLocaleDateString() : (lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : 'Just fetched'),
+      score: lead.aiScore || 0,
+      summary: lead.description?.substring(0, 200) || '',
+      proposal: lead.proposalDraft || '',
+      status: lead.status || 'active',
+      applied: lead.applied || false,
+      tracked: lead.tracked || false,
+      deleted: lead.deleted || false,
+      createdAt: lead.createdAt,
+    };
+  };
 
   const fetchOpportunities = async () => {
     setLoading(true);
@@ -349,7 +370,7 @@ export default function Dashboard() {
       const lookup = `${job.title} ${job.description} ${job.summary}`.toLowerCase();
       return lookup.includes(nicheQuery.toLowerCase());
     })
-    .sort((a, b) => sortBy === 'score' ? (b.score || 0) - (a.score || 0) : b.id.localeCompare(a.id));
+    .sort((a, b) => sortBy === 'score' ? (b.score || 0) - (a.score || 0) : new Date(b.postedAt || b.createdAt).getTime() - new Date(a.postedAt || a.createdAt).getTime());
 
   return (
     <div className="flex min-h-screen bg-slate-900 text-slate-100 font-sans antialiased">
@@ -541,7 +562,13 @@ export default function Dashboard() {
                           {opportunity.tracked && <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold">Tracking</span>}
                           {opportunity.applied && <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-bold">Applied ✓</span>}
                         </div>
+                        {opportunity.company && <div className="text-[11px] font-semibold text-slate-400">{opportunity.company}</div>}
                         <h3 className="font-bold text-sm text-slate-200">{opportunity.title}</h3>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                          {opportunity.location && <span>📍 {opportunity.location}</span>}
+                          {opportunity.jobType && <span>💼 {opportunity.jobType}</span>}
+                          <span>🕒 {opportunity.postedTime}</span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-1.5 w-full md:w-auto justify-end shrink-0 overflow-x-auto">
@@ -586,16 +613,25 @@ export default function Dashboard() {
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">AI Summary</span>
-                            <p className="text-slate-300 leading-relaxed">{opportunity.summary}</p>
+                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Why this matches</span>
+                            <p className="text-slate-300 leading-relaxed">{opportunity.matchReason || opportunity.summary || 'No match details.'}</p>
                           </div>
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Profitability</span>
-                            <span className="inline-block text-[11px] px-2.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-bold">{opportunity.profitability}</span>
+                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Details</span>
+                            <div className="space-y-1 text-[11px] text-slate-300">
+                              <div>Company: <span className="text-slate-400">{opportunity.company || '—'}</span></div>
+                              <div>Location: <span className="text-slate-400">{opportunity.location || '—'}</span></div>
+                              <div>Type: <span className="text-slate-400">{opportunity.jobType || '—'}</span></div>
+                              <div>Remote: <span className="text-slate-400">{opportunity.remote === false ? 'No' : opportunity.remote ? 'Yes' : '—'}</span></div>
+                            </div>
                           </div>
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Difficulty</span>
-                            <span className="inline-block text-[11px] px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-bold">{opportunity.difficulty}</span>
+                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Tags</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {opportunity.tags.length > 0
+                                ? opportunity.tags.map(t => <span key={t} className="inline-block text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">{t}</span>)
+                                : <span className="text-slate-500 text-[11px]">No tags</span>}
+                            </div>
                           </div>
                         </div>
 
