@@ -20,14 +20,12 @@ export { cleanHtml, extractCompanyDomains };
 // Source registry — public APIs/RSS only (no LinkedIn/Telegram direct scraping).
 // Indeed (RSS deprecated/blocked) and StackOverflow Jobs (RSS discontinued) removed.
 // ---------------------------------------------------------------------------
-export const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: 'rss' | 'reddit' | 'remoteok' | 'workingnomads' }[] = [
+export const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: 'rss' | 'remoteok' | 'remotive' | 'workingnomads' }[] = [
   { name: 'RemoteOK',       url: 'https://remoteok.com/api', type: 'api',  parser: 'remoteok' },
-  { name: 'Remotive',       url: 'https://remotive.com/feed', type: 'rss',  parser: 'rss' },
+  { name: 'Remotive',       url: 'https://remotive.com/api/remote-jobs', type: 'api', parser: 'remotive' },
   { name: 'WeWorkRemotely', url: 'https://weworkremotely.com/remote-jobs.rss', type: 'rss', parser: 'rss' },
   { name: 'Himalayas',      url: 'https://himalayas.app/jobs/rss', type: 'rss', parser: 'rss' },
   { name: 'WorkingNomads',  url: 'https://www.workingnomads.co/api/exposed_jobs/', type: 'api', parser: 'workingnomads' },
-  { name: 'Reddit',         url: 'https://www.reddit.com/r/forhire+jobbit+remotejs+remotework+designjobs/.json?limit=50', type: 'json', parser: 'reddit' },
-  { name: 'CryptoJobsList', url: 'https://cryptojobslist.com/jobs.rss?jobLocation=Remote', type: 'rss', parser: 'rss' },
   { name: 'AuthenticJobs',  url: 'https://authenticjobs.com/?feed=job_feed&job_types=freelance,full-time,internship,part-time&search_location=remote', type: 'rss', parser: 'rss' },
   { name: 'Jobicy',         url: 'https://jobicy.com/?feed=job_feed', type: 'rss', parser: 'rss' },
   { name: 'LandingJobs',    url: 'https://landing.jobs/feed?remote=true', type: 'rss', parser: 'rss' },
@@ -71,9 +69,15 @@ async function fetchWithRetry(url: string, opts: RequestInit = {}, retries = 2, 
         await sleep(1000 * Math.pow(2, attempt));
         continue;
       }
+      // Client errors (403/404/410/etc.) won't resolve on retry — surface them
+      // so the source is recorded as a failure rather than silently "0 leads".
+      if (res.status >= 400) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       return res;
-    } catch {
+    } catch (err) {
       clearTimeout(timer);
+      if (err instanceof Error && err.message.startsWith('HTTP ')) throw err;
       if (attempt === retries) return null;
       await sleep(800 * Math.pow(2, attempt));
     }
@@ -137,27 +141,32 @@ async function parseRss(feed: { name: string; url: string }): Promise<ScrapedIte
   return items;
 }
 
-async function parseReddit(url: string): Promise<ScrapedItem[]> {
+async function parseRemotive(url: string): Promise<ScrapedItem[]> {
   const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } });
-  if (!res || !res.ok) return [];
+  if (!res) return [];
   const data = await res.json();
-  const children = data?.data?.children || [];
-  return children.map((child: any) => {
-    const d = child.data;
-    const title = cleanHtml(d.title || '');
-    const desc = cleanHtml(d.selftext || d.title || '');
-    const salary = parseSalary(desc);
+  const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+  const jtMap: Record<string, string> = {
+    full_time: 'full-time', part_time: 'part-time', contract: 'contract',
+    freelance: 'contract', internship: 'internship',
+  };
+  return jobs.map((job: any) => {
+    const title = cleanHtml(job.title || '');
+    const salary = parseSalary(job.salary || '');
     return {
       title,
-      description: desc.slice(0, 2000),
-      url: `https://reddit.com${d.permalink}`,
-      source: 'Reddit',
+      description: cleanHtml(job.description || '').slice(0, 2000),
+      url: job.url || '',
+      source: 'Remotive',
+      company: cleanHtml(job.company_name || ''),
+      location: cleanHtml(job.candidate_required_location || ''),
       salaryMin: salary.min,
       salaryMax: salary.max,
       salaryCurrency: salary.currency,
-      postedAt: d.created_utc ? new Date(d.created_utc * 1000).toISOString() : undefined,
-      tags: inferTags(`${title} ${desc}`),
-      remote: undefined,
+      jobType: jtMap[(job.job_type || '').toLowerCase()] || job.job_type || undefined,
+      postedAt: job.publication_date ? new Date(job.publication_date).toISOString() : undefined,
+      tags: (job.tags || []).map((t: string) => String(t).toLowerCase()).slice(0, 8),
+      remote: /worldwide|remote|anywhere/i.test(`${job.candidate_required_location || ''}`) ? true : undefined,
     } as ScrapedItem;
   }).filter((i: ScrapedItem) => i.title && i.url);
 }
@@ -288,8 +297,8 @@ export async function runScrapePipeline(
     try {
       await sleep(1000);
       let items: ScrapedItem[] = [];
-      if (source.parser === 'reddit') items = await parseReddit(source.url);
-      else if (source.parser === 'remoteok') items = await parseRemoteOk();
+      if (source.parser === 'remoteok') items = await parseRemoteOk();
+      else if (source.parser === 'remotive') items = await parseRemotive(source.url);
       else if (source.parser === 'workingnomads') items = await parseWorkingNomads(source.url);
       else items = await parseRss(source);
 
