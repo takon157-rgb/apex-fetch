@@ -2,7 +2,7 @@
 
 > High-velocity, AI-powered remote job lead discovery and operations platform.
 
-ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14+ live sources in real-time. By combining RSS/API feed parsing with automated Gemini AI scoring, resume-tailored filtering, and Discord dispatch, it transforms raw job boards into a high-converting pipeline.
+ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 10+ live sources in real-time. By combining RSS/API feed parsing with automated scoring, resume-tailored filtering, and Discord dispatch, it transforms raw job boards into a high-converting pipeline.
 
 ---
 
@@ -20,7 +20,7 @@ ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 14
 ## 🔥 Key Features
 
 ### Unified Scraper Pipeline
-- **14 sources** scraped sequentially with rate-limit delays: Reddit (JSON API), RemoteOK (API), Remotive, WeWorkRemotely, Himalayas, AuthenticJobs, StackOverflow, CryptoJobsList, WorkingNomads, Indeed, LandingJobs, Jobicy, CareerNest, Workbeam
+- **10 sources** scraped sequentially with rate-limit delays and retry/backoff: RemoteOK (API), Reddit (JSON API), Remotive, WeWorkRemotely, Himalayas, AuthenticJobs, CryptoJobsList, WorkingNomads, Jobicy, LandingJobs
 - **Progress tracking** — real-time progress bar showing per-source status during pull
 - **Trend discovery** — Playwright workers identify trending company domains from job boards
 - **Source health monitoring** — every scrape records per-source success/failure
@@ -140,7 +140,6 @@ The build compiles TypeScript, generates the Prisma client, and assembles an opt
 | `npx prisma db push` | Sync schema to database |
 | `npx prisma studio` | Open Prisma data browser |
 | `npx prisma migrate dev` | Create and apply migrations |
-| `npm run worker` | Run Playwright side scraper (`scripts/ser.js`) |
 
 ---
 

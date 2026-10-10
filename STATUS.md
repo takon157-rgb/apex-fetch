@@ -1,42 +1,52 @@
 # ApexFetch — STATUS
 
 **Last updated:** 2026-10-10
-**Current phase:** Phase 1 (Audit) ✅ complete → Phase 2 (Research) next
+**Branch:** `audit-and-plan`
+**Phase:** 1 (Data foundation) mostly done → 2/3/4 next
 
 ---
 
-## What's working ✅
+## Done so far ✅
 
-- Codebase compiles clean (`tsc --noEmit`).
-- Git is clean on `main`; remote `takon157-rgb/apex-fetch.git` reachable.
-- Auth scaffolding (Clerk) wired end-to-end (middleware, webhook, header).
-- Prisma client generated and in sync with `schema.prisma`.
-- Playwright browsers installed locally.
+**Phase 0 — config**
+- Fixed local `.env.local`: `DATABASE_URL` → Supabase pooler, `DIRECT_URL` → direct host (was stale IP `18.196.8.182`).
+- Generated a 64-char `CRON_SECRET` in `.env.local` (gitignored) — **owner must copy it to Vercel**.
 
-## What's broken ❌ (top blockers)
+**Phase 1 — data foundation** (committed, tsc clean, 9/9 tests pass, `next build` succeeds)
+- Schema: added `company`, `location`, `salaryMin/Max`, `salaryCurrency`, `jobType`, `remote`, `timezone`, `postedAt`, `tags`, `matchReason` + indexes (all nullable → non-destructive).
+- `supabase/migration_add_job_fields.sql` (idempotent) for the new columns.
+- `lib/scraper.ts` rewritten: real XML parsing (cheerio), retry+backoff+timeout, per-source field extraction, cross-source dedupe, honest explainable `score` + `matchReason`.
+- **Removed the auto-prune** that silently deleted leads scoring <8 on every scrape.
+- Fixed "trend discovery" to derive company domains from job URLs (not CDN hosts).
+- `api/leads`: paginated per-user results ordered by `postedAt`; removed the relevance filter that hid leads.
+- Deleted dead JSON/Playwright scaffolding: `lib/telegram.ts`, `scripts/*.js`, `api/jobs`, `api/status`, `api/incoming`, `api/run-scripts`.
+- `app/page.tsx`: cards now show company/location/salary/date/tags/matchReason; fixed "newest" sort.
+- Extracted pure utils to `lib/scraper-utils.ts` (fixes duplicated scoring) + `lib/scraper.test.mjs` (9 tests, `npm test`).
+- README + `.env.example` updated (10 sources, no more `worker` command, added `NEXT_PUBLIC_APP_URL`).
 
-1. **DB unreachable locally** — `.env`/`.env.local` `DATABASE_URL` points to stale IP `18.196.8.182`; strings swapped vs `.env.vercel`.
-2. **Prod env missing secrets** — `CRON_SECRET`, `PAYSTACK_*`, `GOOGLE_PLACES_API_KEY`, `NEXT_PUBLIC_APP_URL` absent from `.env.vercel` → cron 401, billing broken, local leads broken.
-3. **Split-brain data** — Prisma (dashboard) vs JSON files (Playwright scripts + `/api/jobs`).
-4. **Missing job fields** — no `company`, `location`, `salary`, `postedAt` on `Lead`.
-5. **Aggressive auto-prune** — leads with `aiScore < 8` deleted on every scrape.
+## Still broken / blocked ⛔
+
+1. **Supabase is paused** — owner must unpause project `reoclbbidpqcvpsfhggl` before the DB works at all.
+2. **Prod secrets missing** — owner needs to set on Vercel: `CRON_SECRET` (use the one in `.env.local`), `PAYSTACK_SECRET_KEY`, `PAYSTACK_PRO_PLAN_CODE`, `GOOGLE_PLACES_API_KEY`, `NEXT_PUBLIC_APP_URL`. Until then: cron 401s, billing broken, local-leads broken.
+3. **`/api/settings` and `/api/stored-leads` still use JSON files** (`lib/db.ts`) — legacy, lower priority; migrate later.
+4. **Duplicate/dead routes still present**: `api/discord`, `api/send-discord`, `api/apply`, `api/referral` (overlap newer routes).
 
 ## What's next 🚀
 
-- **Phase 2:** Research 5–8 top job platforms → `RESEARCH.md`.
-- **Phase 3:** Produce `PLAN.md` (prioritized roadmap, owners, effort, risk) → **get approval before execution.**
-- **Phase 4:** Execute via sub-agents on a feature branch.
-- **Phase 5:** Test, QA, deploy with rollback plan → **get approval before deploy.**
+- **Phase 2 remainder:** verify live sources respond (RemoteOK/Remotive/WWR/Himalayas), tune parsers against real payloads, add a source-health dashboard endpoint.
+- **Phase 3:** caching, Redis rate limiting, stale-job cleanup, Sentry logging, backup runbook.
+- **Phase 4 (delegate to sub-agents):** full UI redesign — RemoteOK salary/tag/filter/sort core, saved jobs + application tracker, saved-search email alerts, accessibility pass.
+- **Phase 5:** QA sub-agent (E2E + manual), then deploy gate with rollback plan.
 
-## Blocked on (need from owner)
+## Blocked on owner (please do when convenient)
 
-- Supabase dashboard access to confirm whether project `reoclbbidpqcvpsfhggl` is paused/deleted.
-- Correct Supabase connection strings for local `.env.local` (or confirm the `.env.vercel` values).
-- Vercel env confirmation (does the deployed app actually have `CRON_SECRET`/`PAYSTACK_*`?).
+1. Unpause Supabase project `reoclbbidpqcvpsfhggl`.
+2. Add the 5 secrets to Vercel (list above).
+3. Create Paystack + Google Cloud accounts when ready for billing / local-leads.
 
-## Key files
+## Verify commands
 
-- `AUDIT.md` — full Phase 1 findings, ranked Critical/High/Medium/Low.
-- `lib/scraper.ts` — core pipeline (needs hardening first).
-- `prisma/schema.prisma` — schema (needs job fields).
-- `app/page.tsx` — dashboard (needs redesign).
+- `npx tsc --noEmit` → clean
+- `npm test` → 9/9 pass
+- `npm run build` → succeeds
+- After unpausing DB: `npx prisma db push` (or run `supabase/migration_add_job_fields.sql`) to apply the new columns.
