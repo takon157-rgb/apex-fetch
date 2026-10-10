@@ -24,6 +24,12 @@
 - Extracted pure utils to `lib/scraper-utils.ts` (fixes duplicated scoring) + `lib/scraper.test.mjs` (9 tests, `npm test`).
 - README + `.env.example` updated (10 sources, no more `worker` command, added `NEXT_PUBLIC_APP_URL`).
 
+**Phase 2 — scraper hardening** (live-verified)
+- Live source health check: **8/8 sources return 200 with valid payloads** (RemoteOK, Remotive, WeWorkRemotely, Himalayas, WorkingNomads, AuthenticJobs, Jobicy, LandingJobs).
+- Fixed Remotive (old `/feed` → 404; switched to `/api/remote-jobs` JSON API + added `parseRemotive`).
+- Removed Reddit + CryptoJobsList (both 403-blocked; Reddit was mostly "[for hire]" noise).
+- `fetchWithRetry` now throws on 4xx so blocked/dead sources are recorded as failures, not silent "0 leads".
+
 ## Still broken / blocked ⛔
 
 1. **Supabase is paused** — owner must unpause project `reoclbbidpqcvpsfhggl` before the DB works at all.
@@ -33,7 +39,6 @@
 
 ## What's next 🚀
 
-- **Phase 2 remainder:** verify live sources respond (RemoteOK/Remotive/WWR/Himalayas), tune parsers against real payloads, add a source-health dashboard endpoint.
 - **Phase 3:** caching, Redis rate limiting, stale-job cleanup, Sentry logging, backup runbook.
 - **Phase 4 (delegate to sub-agents):** full UI redesign — RemoteOK salary/tag/filter/sort core, saved jobs + application tracker, saved-search email alerts, accessibility pass.
 - **Phase 5:** QA sub-agent (E2E + manual), then deploy gate with rollback plan.
