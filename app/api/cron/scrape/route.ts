@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { runScrapePipeline } from '@/lib/scraper';
+import { cleanupStaleLeads } from '@/lib/maintenance';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -17,6 +18,9 @@ export async function GET(req: NextRequest) {
     if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Prune stale listings across all users before pulling fresh ones.
+    const stale = await cleanupStaleLeads(45);
 
     const users = await prisma.user.findMany({
       where: { isSubscribed: true },
@@ -66,6 +70,7 @@ export async function GET(req: NextRequest) {
       usersProcessed: users.length,
       totalNewLeads: totalNew,
       totalPrunedLeads: totalPruned,
+      staleRemoved: stale.removed,
       results,
     });
   } catch (err) {
