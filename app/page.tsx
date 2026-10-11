@@ -33,6 +33,18 @@ interface JobOpportunity {
   createdAt: string;
 }
 
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button
+      onClick={onClear}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-600/15 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/25 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+    >
+      {label}
+      <span aria-hidden="true" className="text-indigo-400 font-bold">×</span>
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const { user, isLoaded } = useUser();
@@ -41,10 +53,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [scraping, setScraping] = useState<boolean>(false);
   const [scrapeDone, setScrapeDone] = useState<boolean>(false);
-  const [sortBy, setSortBy] = useState<string>('score');
+  const [sortBy, setSortBy] = useState<string>('latest');
   const [selectedSource, setSelectedSource] = useState<string>('All');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
   const [nicheQuery, setNicheQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [minSalary, setMinSalary] = useState<string>('');
+  const [remoteOnly, setRemoteOnly] = useState<boolean>(false);
+  const [jobTypeFilter, setJobTypeFilter] = useState<string>('All');
   const [viewMode, setViewMode] = useState<'active' | 'trash'>('active');
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
@@ -350,6 +366,52 @@ export default function Dashboard() {
     });
   };
 
+  const formatRelativeTime = (postedAt: string | null, createdAt: string): string => {
+    const raw = postedAt || createdAt;
+    if (!raw) return 'Just fetched';
+    const date = new Date(raw);
+    if (isNaN(date.getTime())) return 'Just fetched';
+    const diffMs = Date.now() - date.getTime();
+    if (diffMs < 0) return 'just now';
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 5) return `${weeks}w ago`;
+    return date.toLocaleDateString();
+  };
+
+  const displaySalary = (job: JobOpportunity): string => {
+    if (job.salaryMin != null || job.salaryMax != null) return job.budget;
+    if (job.budget && job.budget !== 'Open Terms') return job.budget;
+    return 'Salary not listed';
+  };
+
+  const capitalize = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== '' ||
+    minSalary !== '' ||
+    remoteOnly ||
+    jobTypeFilter !== 'All' ||
+    nicheQuery.trim() !== '' ||
+    selectedSource !== 'All' ||
+    selectedIndustry !== 'All';
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setMinSalary('');
+    setRemoteOnly(false);
+    setJobTypeFilter('All');
+    setNicheQuery('');
+    setSelectedSource('All');
+    setSelectedIndustry('All');
+  };
+
   const totalActiveLeadsCount = jobs.filter(j => !j.deleted).length;
   const totalTrashCount = jobs.filter(j => j.deleted).length;
 
@@ -370,7 +432,33 @@ export default function Dashboard() {
       const lookup = `${job.title} ${job.description} ${job.summary}`.toLowerCase();
       return lookup.includes(nicheQuery.toLowerCase());
     })
-    .sort((a, b) => sortBy === 'score' ? (b.score || 0) - (a.score || 0) : new Date(b.postedAt || b.createdAt).getTime() - new Date(a.postedAt || a.createdAt).getTime());
+    .filter(job => {
+      if (!searchQuery || searchQuery.trim() === '') return true;
+      const q = searchQuery.trim().toLowerCase();
+      const haystack = `${job.title} ${job.company || ''} ${job.description} ${job.tags.join(' ')}`.toLowerCase();
+      return haystack.includes(q);
+    })
+    .filter(job => {
+      if (!minSalary || minSalary.trim() === '') return true;
+      const min = Number(minSalary);
+      if (Number.isNaN(min)) return true;
+      const hasSalary = job.salaryMin != null || job.salaryMax != null;
+      if (!hasSalary) return false;
+      const sMin = job.salaryMin ?? job.salaryMax ?? 0;
+      const sMax = job.salaryMax ?? job.salaryMin ?? 0;
+      return sMin >= min || sMax >= min;
+    })
+    .filter(job => !remoteOnly || job.remote !== false)
+    .filter(job => jobTypeFilter === 'All' || job.jobType === jobTypeFilter)
+    .sort((a, b) => {
+      if (sortBy === 'highest-paid') {
+        const aMax = a.salaryMax ?? a.salaryMin ?? -1;
+        const bMax = b.salaryMax ?? b.salaryMin ?? -1;
+        return bMax - aMax;
+      }
+      if (sortBy === 'score') return (b.score || 0) - (a.score || 0);
+      return new Date(b.postedAt || b.createdAt).getTime() - new Date(a.postedAt || a.createdAt).getTime();
+    });
 
   return (
     <div className="flex min-h-screen bg-slate-900 text-slate-100 font-sans antialiased">
@@ -383,11 +471,11 @@ export default function Dashboard() {
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Lead Repositories</span>
-            <button onClick={() => setViewMode('active')} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'active' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-900'}`}>
+            <button onClick={() => setViewMode('active')} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${viewMode === 'active' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-900'}`}>
               <span>📥 Live Leads Feed</span>
               <span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px]">{totalActiveLeadsCount}</span>
             </button>
-            <button onClick={() => setViewMode('trash')} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'trash' ? 'bg-rose-600/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-900'}`}>
+            <button onClick={() => setViewMode('trash')} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${viewMode === 'trash' ? 'bg-rose-600/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-900'}`}>
               <span>🗑 Trash Bin History</span>
               <span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px] text-slate-400">{totalTrashCount}</span>
             </button>
@@ -395,12 +483,12 @@ export default function Dashboard() {
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Workspace</span>
-            <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition">Profile & Resume</Link>
+            <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Profile & Resume</Link>
           </div>
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Moderation</span>
-            <button onClick={() => setShowBlacklist(!showBlacklist)} className={`w-full text-left px-3 py-2 text-xs font-medium rounded-xl transition ${showBlacklist ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900'}`}>
+            <button onClick={() => setShowBlacklist(!showBlacklist)} className={`w-full text-left px-3 py-2 text-xs font-medium rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${showBlacklist ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900'}`}>
               🚫 Blocklist {blacklist.length > 0 && <span className="ml-1 text-rose-400">({blacklist.length})</span>}
             </button>
           </div>
@@ -408,13 +496,13 @@ export default function Dashboard() {
           {showBlacklist && (
             <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 space-y-2">
               <div className="flex gap-1">
-                <input value={blacklistInput} onChange={e => setBlacklistInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlacklistKeyword()} placeholder="e.g. blockchain" className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500" />
-                <button onClick={addBlacklistKeyword} className="px-2 py-1 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30">Add</button>
+                <input value={blacklistInput} onChange={e => setBlacklistInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlacklistKeyword()} placeholder="e.g. blockchain" className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
+                <button onClick={addBlacklistKeyword} className="px-2 py-1 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Add</button>
               </div>
               {blacklist.map(k => (
                 <div key={k} className="flex items-center justify-between px-2 py-1 rounded bg-slate-800/50">
                   <span className="text-xs text-slate-300">{k}</span>
-                  <button onClick={() => removeBlacklistKeyword(k)} className="text-rose-400 hover:text-rose-300 text-xs">✕</button>
+                  <button onClick={() => removeBlacklistKeyword(k)} aria-label={`Remove ${k} from blocklist`} className="text-rose-400 hover:text-rose-300 text-xs focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">✕</button>
                 </div>
               ))}
             </div>
@@ -423,25 +511,25 @@ export default function Dashboard() {
           {!isSubscribed && (
             <div className="rounded-xl bg-gradient-to-br from-indigo-600/10 to-violet-600/10 border border-indigo-500/20 p-4 space-y-3">
               <div><p className="text-[11px] font-bold text-indigo-300">Unlock Full Access</p><p className="text-[10px] text-slate-400 mt-1">Get unlimited leads, priority AI analysis, and Discord alerts.</p></div>
-              <Link href="/profile" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20">Upgrade Plan</Link>
+              <Link href="/profile" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Upgrade Plan</Link>
             </div>
           )}
 
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Filter Platforms</span>
-            <button onClick={() => setSelectedSource('All')} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === 'All' ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>Universal Feed</button>
+            <button onClick={() => setSelectedSource('All')} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedSource === 'All' ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>Universal Feed</button>
             {sortedSources.slice(0, 5).map(([src]) => (
-              <button key={src} onClick={() => setSelectedSource(src)} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
+              <button key={src} onClick={() => setSelectedSource(src)} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
             ))}
             {sortedSources.length > 5 && (
               <details className="group">
-                <summary className="w-full text-left px-3 py-1.5 text-xs rounded-xl text-slate-500 hover:text-slate-300 hover:bg-slate-900 cursor-pointer list-none flex items-center gap-1">
+                <summary className="w-full text-left px-3 py-1.5 text-xs rounded-xl text-slate-500 hover:text-slate-300 hover:bg-slate-900 cursor-pointer list-none flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                   <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                   More sources ({sortedSources.length - 5})
                 </summary>
                 <div className="pt-1 space-y-0.5">
                   {sortedSources.slice(5).map(([src]) => (
-                    <button key={src} onClick={() => setSelectedSource(src)} className={`w-full text-left px-3 py-1 text-xs rounded-xl transition ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
+                    <button key={src} onClick={() => setSelectedSource(src)} className={`w-full text-left px-3 py-1 text-xs rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
                   ))}
                 </div>
               </details>
@@ -468,16 +556,16 @@ export default function Dashboard() {
         <header className="border-b border-slate-800 bg-slate-950/60 backdrop-blur-md px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between sticky top-0 z-40 gap-2">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <button onClick={() => setMobileFilterOpen(true)} className="md:hidden p-2 rounded-lg bg-slate-800 hover:bg-slate-700">
+              <button onClick={() => setMobileFilterOpen(true)} aria-label="Open filters" className="md:hidden p-2 rounded-lg bg-slate-800 hover:bg-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                 <svg className="w-4 h-4 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
               </button>
               <h2 className="font-bold text-slate-200 text-sm md:text-base truncate">{viewMode === 'active' ? 'Live Leads Feed' : 'Trash Bin'}</h2>
             </div>
-            <a href="/local-leads" className="text-xs sm:text-sm text-indigo-300 hover:underline shrink-0">Local</a>
+            <a href="/local-leads" className="text-xs sm:text-sm text-indigo-300 hover:underline shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded">Local</a>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto">
-            <button onClick={fetchOpportunities} disabled={loading} className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0">{loading ? 'Refreshing...' : '🔄'}</button>
-            <button onClick={handleRunScraperPipeline} disabled={scraping} className={`px-3 sm:px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm shrink-0 ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
+            <button onClick={fetchOpportunities} disabled={loading} aria-label="Refresh leads" title="Refresh leads" className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">{loading ? 'Refreshing...' : '🔄'}</button>
+            <button onClick={handleRunScraperPipeline} disabled={scraping} className={`px-3 sm:px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
               {scraping ? 'Scraping...' : '🔍 Pull'}
             </button>
           </div>
@@ -501,7 +589,7 @@ export default function Dashboard() {
         {scrapeError && (
           <div className="px-6 py-3 bg-rose-500/10 border-b border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
             <span>⚠️</span> {scrapeError}
-            <button onClick={() => setScrapeError(null)} className="ml-auto text-rose-400 hover:text-rose-200">✕</button>
+            <button onClick={() => setScrapeError(null)} aria-label="Dismiss error" className="ml-auto text-rose-400 hover:text-rose-200 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">✕</button>
           </div>
         )}
 
@@ -514,129 +602,237 @@ export default function Dashboard() {
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Target Industry / Niche Selection</span>
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
               {industries.map(ind => (
-                <button key={ind} onClick={() => setSelectedIndustry(ind)} className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${selectedIndustry === ind ? 'bg-indigo-600 text-white font-semibold' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}>{ind}</button>
+                <button key={ind} onClick={() => setSelectedIndustry(ind)} className={`px-3 py-1.5 rounded-xl text-xs font-medium transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedIndustry === ind ? 'bg-indigo-600 text-white font-semibold' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}>{ind}</button>
               ))}
             </div>
             <div className="mt-4">
               <label className="block text-[10px] uppercase tracking-wider text-slate-500 mb-2">Niche search</label>
               <div className="flex gap-2">
-                <input type="text" value={nicheQuery} onChange={e => setNicheQuery(e.target.value)} placeholder="e.g. 'data entry', 'copywriter'..." className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500" />
+                <input type="text" value={nicheQuery} onChange={e => setNicheQuery(e.target.value)} placeholder="e.g. 'data entry', 'copywriter'..." className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
               </div>
             </div>
           </div>
 
+          <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Refine Results</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <label className="block">
+                <span className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Search</span>
+                <div className="relative">
+                  <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" /></svg>
+                  <input type="search" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Title, company, tags..." className="w-full rounded-xl border border-slate-800 bg-slate-900 pl-8 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
+                </div>
+              </label>
+
+              <label className="block">
+                <span className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Minimum salary (USD)</span>
+                <input type="number" min={0} step={1000} value={minSalary} onChange={e => setMinSalary(e.target.value)} placeholder="e.g. 60000" className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
+              </label>
+
+              <label className="block">
+                <span className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Job type</span>
+                <select value={jobTypeFilter} onChange={e => setJobTypeFilter(e.target.value)} className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
+                  <option value="All">All types</option>
+                  <option value="full-time">Full-time</option>
+                  <option value="part-time">Part-time</option>
+                  <option value="contract">Contract</option>
+                  <option value="internship">Internship</option>
+                </select>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 min-h-[38px]">
+                <input type="checkbox" checked={remoteOnly} onChange={e => setRemoteOnly(e.target.checked)} className="h-4 w-4 rounded accent-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
+                <span className="text-sm text-slate-200">Remote only</span>
+              </label>
+            </div>
+
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs text-slate-500 font-medium">Active filters:</span>
+                {searchQuery.trim() !== '' && <FilterChip label={`"${searchQuery.trim()}"`} onClear={() => setSearchQuery('')} />}
+                {minSalary !== '' && !Number.isNaN(Number(minSalary)) && <FilterChip label={`Salary ≥ $${Number(minSalary).toLocaleString()}`} onClear={() => setMinSalary('')} />}
+                {remoteOnly && <FilterChip label="Remote only" onClear={() => setRemoteOnly(false)} />}
+                {jobTypeFilter !== 'All' && <FilterChip label={capitalize(jobTypeFilter)} onClear={() => setJobTypeFilter('All')} />}
+                {nicheQuery.trim() !== '' && <FilterChip label={`niche "${nicheQuery.trim()}"`} onClear={() => setNicheQuery('')} />}
+                {selectedSource !== 'All' && <FilterChip label={selectedSource} onClear={() => setSelectedSource('All')} />}
+                {selectedIndustry !== 'All' && <FilterChip label={selectedIndustry} onClear={() => setSelectedIndustry('All')} />}
+                <button onClick={clearFilters} className="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded">Clear all</button>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800 rounded-xl px-3 sm:px-4 py-2.5 gap-2">
-            <span className="text-[11px] sm:text-xs font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> entries</span>
+            <span aria-live="polite" className="text-xs sm:text-sm font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> {displayedOpportunities.length === 1 ? 'entry' : 'entries'}</span>
             <div className="flex items-center gap-2">
               {viewMode === 'trash' && totalTrashCount > 0 && (
-                <button onClick={clearTrashBin} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0">
+                <button onClick={clearTrashBin} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                   🗑 Clear All
                 </button>
               )}
-              <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1">
-                <option value="score">⭐️ AI Score First</option>
-                <option value="newest">🕒 Recency First</option>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort jobs" className="bg-slate-900 border border-slate-700 text-slate-200 text-xs sm:text-sm rounded-lg px-2.5 py-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
+                <option value="latest">🕒 Latest</option>
+                <option value="highest-paid">💰 Highest paid</option>
+                <option value="score">⭐ AI Score</option>
               </select>
             </div>
           </div>
 
           {loading ? (
-            <div className="text-center py-24 text-xs text-slate-400 animate-pulse">Loading your opportunities...</div>
+            <div className="space-y-3.5" aria-busy="true" aria-label="Loading jobs">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="bg-slate-950/30 rounded-xl border border-slate-800 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="h-3 w-16 bg-slate-800 rounded animate-pulse" />
+                    <div className="h-3 w-14 bg-slate-800 rounded animate-pulse" />
+                  </div>
+                  <div className="h-4 w-2/3 bg-slate-800 rounded animate-pulse mb-2.5" />
+                  <div className="h-3.5 w-1/3 bg-slate-800 rounded animate-pulse mb-3" />
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-24 bg-slate-800 rounded animate-pulse" />
+                    <div className="h-3 w-16 bg-slate-800 rounded animate-pulse" />
+                    <div className="h-3 w-20 bg-slate-800 rounded animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : displayedOpportunities.length === 0 ? (
-            <div className="text-center py-20 bg-slate-950/10 rounded-2xl border border-dashed border-slate-800 text-slate-400 text-xs">No records found. Click Pull to scrape new opportunities.</div>
+            <div className="text-center py-20 bg-slate-950/10 rounded-2xl border border-dashed border-slate-800">
+              <div className="text-4xl mb-3" aria-hidden="true">{viewMode === 'trash' ? '🗑️' : '🔍'}</div>
+              {viewMode === 'trash' ? (
+                <>
+                  <p className="text-slate-300 font-semibold text-sm">Trash is empty</p>
+                  <p className="text-slate-500 text-xs mt-1">Deleted leads will show up here.</p>
+                </>
+              ) : hasActiveFilters ? (
+                <>
+                  <p className="text-slate-300 font-semibold text-sm">No jobs match your filters</p>
+                  <p className="text-slate-500 text-xs mt-1">Try adjusting or clearing your filters.</p>
+                  <button onClick={clearFilters} className="mt-4 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Clear filters</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-slate-300 font-semibold text-sm">No records found</p>
+                  <p className="text-slate-500 text-xs mt-1">Click Pull to scrape new opportunities.</p>
+                </>
+              )}
+            </div>
           ) : (
             <div className="space-y-3.5">
               {displayedOpportunities.map(opportunity => {
                 const isExpanded = expandedJobId === opportunity.id;
                 const isSendingToDiscord = !!discordLoadingMap[opportunity.id];
                 const isApplying = !!applyingMap[opportunity.id];
+                const hasSalary = opportunity.salaryMin != null || opportunity.salaryMax != null;
 
                 return (
-                  <div key={opportunity.id} className={`bg-slate-950/30 rounded-xl border transition-all overflow-hidden ${isExpanded ? 'border-slate-700 bg-slate-950/70 shadow-lg' : 'border-slate-800 hover:border-slate-700'}`}>
-                    <div className="p-3 sm:p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4">
-                      <div className="space-y-1.5 max-w-xl">
+                  <div key={opportunity.id} className={`bg-slate-950/30 rounded-xl border transition-all overflow-hidden ${isExpanded ? 'border-slate-700 bg-slate-950/70 shadow-lg' : 'border-slate-800 hover:border-slate-600 hover:bg-slate-950/50'}`}>
+                    <div className="p-4 sm:p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-slate-800 text-indigo-300">{opportunity.source}</span>
-                          <span className="text-[10px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded font-mono">{opportunity.budget}</span>
-                          <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded font-bold">Score: {opportunity.score}/10</span>
-                          {opportunity.tracked && <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-bold">Tracking</span>}
-                          {opportunity.applied && <span className="text-[10px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-bold">Applied ✓</span>}
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-indigo-300 uppercase tracking-wider">{opportunity.source}</span>
+                          <span className="text-xs text-slate-500">🕒 {formatRelativeTime(opportunity.postedAt, opportunity.createdAt)}</span>
                         </div>
-                        {opportunity.company && <div className="text-[11px] font-semibold text-slate-400">{opportunity.company}</div>}
-                        <h3 className="font-bold text-sm text-slate-200">{opportunity.title}</h3>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                          {opportunity.location && <span>📍 {opportunity.location}</span>}
-                          {opportunity.jobType && <span>💼 {opportunity.jobType}</span>}
-                          <span>🕒 {opportunity.postedTime}</span>
+                        <div className="flex items-center gap-1.5">
+                          {opportunity.tracked && <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">✓ Tracking</span>}
+                          {opportunity.applied && <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">✓ Applied</span>}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 w-full md:w-auto justify-end shrink-0 overflow-x-auto">
-                        <button onClick={() => setExpandedJobId(isExpanded ? null : opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0">
-                          {isExpanded ? 'Hide' : '📄'}
-                        </button>
+                      <h3 className="text-base sm:text-lg font-bold leading-snug mb-2">
+                        <a href={opportunity.url} target="_blank" rel="noopener noreferrer" className="text-slate-100 hover:text-indigo-300 hover:underline transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded">
+                          {opportunity.title}
+                        </a>
+                      </h3>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3 text-sm text-slate-400">
+                        {opportunity.company && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">🏢</span><span className="text-slate-300 font-medium">{opportunity.company}</span></span>}
+                        {opportunity.location && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">📍</span>{opportunity.location}</span>}
+                        <span className={`inline-flex items-center gap-1.5 font-semibold ${hasSalary ? 'text-emerald-400' : 'text-slate-500'}`}><span aria-hidden="true">💰</span>{displaySalary(opportunity)}</span>
+                        {opportunity.jobType && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">💼</span>{capitalize(opportunity.jobType)}</span>}
+                        {opportunity.score > 0 && <span className="inline-flex items-center gap-1.5 text-indigo-400 font-semibold"><span aria-hidden="true">⭐</span>Score {opportunity.score}/10</span>}
+                      </div>
+
+                      {opportunity.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-4">
+                          {opportunity.tags.slice(0, 6).map(t => (
+                            <span key={t} className="inline-block text-xs px-2 py-0.5 rounded-md bg-slate-800/70 text-slate-300 border border-slate-700">{t}</span>
+                          ))}
+                          {opportunity.tags.length > 6 && <span className="text-xs text-slate-500 self-center">+{opportunity.tags.length - 6}</span>}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <a href={opportunity.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
+                          Apply <span aria-hidden="true">↗</span>
+                        </a>
 
                         {viewMode === 'active' ? (
                           <>
-                            <button onClick={() => { reviewJob(opportunity); router.push('/profile'); }} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition shrink-0">
+                            <button onClick={() => toggleTrack(opportunity.id, opportunity.tracked)} title={opportunity.tracked ? 'Stop tracking this job' : 'Track this job'} className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${opportunity.tracked ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'}`}>
+                              {opportunity.tracked ? 'Tracking' : 'Track'}
+                            </button>
+                            <button onClick={() => toggleApplied(opportunity.id, opportunity.applied)} disabled={isApplying} title={opportunity.applied ? 'Mark as not applied' : 'Mark as applied'} className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${opportunity.applied ? 'bg-blue-600/10 border-blue-500 text-blue-300' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'}`}>
+                              {isApplying ? '...' : opportunity.applied ? 'Applied' : 'Mark applied'}
+                            </button>
+                            <button onClick={() => { reviewJob(opportunity); router.push('/profile'); }} title="Review this job & update your profile" className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                               Profile
                             </button>
-                            <button onClick={() => toggleTrack(opportunity.id, opportunity.tracked)} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${opportunity.tracked ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                              {opportunity.tracked ? '✓ Tracking' : 'Track'}
-                            </button>
-                            <button onClick={() => toggleApplied(opportunity.id, opportunity.applied)} disabled={isApplying} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${opportunity.applied ? 'bg-blue-600/10 border-blue-500 text-blue-300' : 'bg-slate-900 border-slate-800 text-slate-400'}`}>
-                              {isApplying ? '...' : opportunity.applied ? 'Applied' : 'Apply'}
-                            </button>
-                            <button onClick={() => handleSendToDiscord(opportunity)} disabled={isSendingToDiscord} className={`px-2 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 ${isSendingToDiscord ? 'bg-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-purple-400'}`}>
+                            <button onClick={() => handleSendToDiscord(opportunity)} disabled={isSendingToDiscord} title="Send to Discord" aria-label={`Send ${opportunity.title} to Discord`} className={`inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg border transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${isSendingToDiscord ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-purple-400 hover:border-slate-700'}`}>
                               {isSendingToDiscord ? '...' : '🚀'}
                             </button>
-                            <button onClick={() => moveToTrash(opportunity.id)} className="p-1.5 text-xs rounded-lg border border-slate-800 bg-slate-900 text-slate-500 hover:text-rose-400 shrink-0">🗑</button>
+                            <button onClick={() => moveToTrash(opportunity.id)} title="Move to trash" aria-label={`Move ${opportunity.title} to trash`} className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-900 text-slate-500 hover:text-rose-400 hover:border-slate-700 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">🗑</button>
+                            <button onClick={() => setExpandedJobId(isExpanded ? null : opportunity.id)} aria-expanded={isExpanded} aria-label={isExpanded ? 'Hide job details' : 'Show job details'} title={isExpanded ? 'Hide details' : 'Show details'} className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
+                              {isExpanded ? 'Hide' : '📄'}
+                            </button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => restoreFromTrash(opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 shrink-0">🔄</button>
-                            <button onClick={() => purgePermanently(opportunity.id)} className="px-2 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500 shrink-0">❌</button>
+                            <button onClick={() => restoreFromTrash(opportunity.id)} title="Restore this job" aria-label={`Restore ${opportunity.title}`} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-600/20 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">🔄 Restore</button>
+                            <button onClick={() => purgePermanently(opportunity.id)} title="Delete permanently" aria-label={`Delete ${opportunity.title} permanently`} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500 hover:bg-rose-600/30 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">❌ Delete</button>
+                            <button onClick={() => setExpandedJobId(isExpanded ? null : opportunity.id)} aria-expanded={isExpanded} aria-label={isExpanded ? 'Hide job details' : 'Show job details'} title={isExpanded ? 'Hide details' : 'Show details'} className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
+                              {isExpanded ? 'Hide' : '📄'}
+                            </button>
                           </>
                         )}
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="border-t border-slate-800 bg-slate-950/40 p-3 sm:p-5 space-y-4 sm:space-y-5 text-xs">
+                      <div className="border-t border-slate-800 bg-slate-950/40 p-4 sm:p-5 space-y-4 sm:space-y-5 text-sm">
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Job Description</h4>
-                            <a href={opportunity.url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Launch Link Origin ↗</a>
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Job Description</h4>
+                            <a href={opportunity.url} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded">Launch Link Origin ↗</a>
                           </div>
                           <div className="rounded-xl p-4 border border-slate-800 text-slate-300 bg-slate-900/40 max-h-72 overflow-y-auto">{renderFormattedContent(opportunity.description)}</div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Why this matches</span>
+                            <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider mb-2">Why this matches</span>
                             <p className="text-slate-300 leading-relaxed">{opportunity.matchReason || opportunity.summary || 'No match details.'}</p>
                           </div>
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Details</span>
-                            <div className="space-y-1 text-[11px] text-slate-300">
+                            <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider mb-2">Details</span>
+                            <div className="space-y-1 text-xs text-slate-300">
                               <div>Company: <span className="text-slate-400">{opportunity.company || '—'}</span></div>
                               <div>Location: <span className="text-slate-400">{opportunity.location || '—'}</span></div>
-                              <div>Type: <span className="text-slate-400">{opportunity.jobType || '—'}</span></div>
+                              <div>Type: <span className="text-slate-400">{opportunity.jobType ? capitalize(opportunity.jobType) : '—'}</span></div>
                               <div>Remote: <span className="text-slate-400">{opportunity.remote === false ? 'No' : opportunity.remote ? 'Yes' : '—'}</span></div>
                             </div>
                           </div>
                           <div className="p-4 bg-slate-900/50 rounded-xl border border-slate-800">
-                            <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-2">Tags</span>
+                            <span className="text-xs text-slate-500 block uppercase font-bold tracking-wider mb-2">Tags</span>
                             <div className="flex flex-wrap gap-1.5">
                               {opportunity.tags.length > 0
-                                ? opportunity.tags.map(t => <span key={t} className="inline-block text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">{t}</span>)
-                                : <span className="text-slate-500 text-[11px]">No tags</span>}
+                                ? opportunity.tags.map(t => <span key={t} className="inline-block text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">{t}</span>)
+                                : <span className="text-slate-500 text-xs">No tags</span>}
                             </div>
                           </div>
                         </div>
 
                         <div className="space-y-2">
-                          <h4 className="text-[11px] font-bold uppercase tracking-wider text-indigo-400">Proposal Draft</h4>
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Proposal Draft</h4>
                           <div className="bg-slate-950/60 rounded-xl p-4 border border-slate-800 text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50">
                             {opportunity.proposal}
                           </div>
@@ -657,25 +853,25 @@ export default function Dashboard() {
           <div className="absolute left-0 top-0 bottom-0 w-72 bg-slate-950 border-r border-slate-800 shadow-2xl animate-slide-down p-6 overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Filters</span>
-              <button onClick={() => setMobileFilterOpen(false)} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400">
+              <button onClick={() => setMobileFilterOpen(false)} aria-label="Close filters" className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <div className="space-y-4">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Lead Repositories</span>
-                <button onClick={() => { setViewMode('active'); setMobileFilterOpen(false); }} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'active' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-900'}`}><span>📥 Live Leads Feed</span><span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px]">{totalActiveLeadsCount}</span></button>
-                <button onClick={() => { setViewMode('trash'); setMobileFilterOpen(false); }} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition ${viewMode === 'trash' ? 'bg-rose-600/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-900'}`}><span>🗑 Trash</span><span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px] text-slate-400">{totalTrashCount}</span></button>
+                <button onClick={() => { setViewMode('active'); setMobileFilterOpen(false); }} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${viewMode === 'active' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:bg-slate-900'}`}><span>📥 Live Leads Feed</span><span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px]">{totalActiveLeadsCount}</span></button>
+                <button onClick={() => { setViewMode('trash'); setMobileFilterOpen(false); }} className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${viewMode === 'trash' ? 'bg-rose-600/10 text-rose-400 border border-rose-500/20' : 'text-slate-400 hover:bg-slate-900'}`}><span>🗑 Trash</span><span className="font-bold bg-slate-900 px-1.5 py-0.5 rounded text-[10px] text-slate-400">{totalTrashCount}</span></button>
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Workspace</span>
-                <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition" onClick={() => setMobileFilterOpen(false)}>Profile & Resume</Link>
+                <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" onClick={() => setMobileFilterOpen(false)}>Profile & Resume</Link>
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Filter Platforms</span>
-                <button onClick={() => { setSelectedSource('All'); setMobileFilterOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === 'All' ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>Universal Feed</button>
+                <button onClick={() => { setSelectedSource('All'); setMobileFilterOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedSource === 'All' ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>Universal Feed</button>
                 {sortedSources.slice(0, 5).map(([src]) => (
-                  <button key={src} onClick={() => { setSelectedSource(src); setMobileFilterOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
+                  <button key={src} onClick={() => { setSelectedSource(src); setMobileFilterOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs rounded-xl transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${selectedSource === src ? 'bg-slate-800 text-white font-medium border border-slate-700' : 'text-slate-400 hover:bg-slate-900'}`}>{src}</button>
                 ))}
               </div>
             </div>
