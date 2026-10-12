@@ -19,6 +19,7 @@ career_profile.json
 settings.json
 jobs_db.json
 jobs.json
+backups/
 
 # IDE
 .vscode/
