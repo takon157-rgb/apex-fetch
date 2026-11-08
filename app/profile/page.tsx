@@ -8,8 +8,10 @@ interface CareerProfile {
   name: string;
   email: string;
   resumeFileName: string;
-  resumeBase64: string;
   resumeText: string;
+  // The binary resume is never sent to the browser — the API reports only
+  // whether one exists, and the server reads it directly when tailoring.
+  hasResume: boolean;
 }
 
 interface ReviewedJob {
@@ -184,16 +186,19 @@ export default function ProfilePage() {
     await saveProfile({ resumeFileName: file.name, resumeBase64: b64 });
   };
 
-  const saveProfile = async (payload: Partial<CareerProfile>) => {
+  const saveProfile = async (payload: Partial<CareerProfile> & { resumeBase64?: string }) => {
     setSaving(true);
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         name: payload.name || profile?.name || 'Unnamed',
         email: payload.email || profile?.email || '',
         resumeFileName: payload.resumeFileName || profile?.resumeFileName || '',
-        resumeBase64: payload.resumeBase64 || profile?.resumeBase64 || '',
-        resumeText: payload.resumeText ?? profile?.resumeText ?? '',
       };
+      // Only send the resume when it's actually being changed. Sending an
+      // empty string would clear the stored one.
+      if (payload.resumeBase64) body.resumeBase64 = payload.resumeBase64;
+      if (payload.resumeText !== undefined) body.resumeText = payload.resumeText;
+
       const res = await fetch('/api/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -456,7 +461,7 @@ export default function ProfilePage() {
                             {isExpanded ? 'Hide' : 'View'}
                           </button>
                         )}
-                        <button onClick={() => reworkResume(job)} disabled={isReworking || !profile?.resumeText && !profile?.resumeBase64}
+                        <button onClick={() => reworkResume(job)} disabled={isReworking || (!profile?.resumeText && !profile?.hasResume)}
                           className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white transition disabled:opacity-50">
                           {isReworking ? 'Reworking...' : 'Rework Resume'}
                         </button>

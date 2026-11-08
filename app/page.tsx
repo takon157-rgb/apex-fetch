@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
@@ -24,6 +24,10 @@ interface JobOpportunity {
   url: string;
   postedTime: string;
   score: number;
+  fitScore: number | null;
+  fitMatched: string[];
+  fitReason: string | null;
+  applicationStatus: string;
   summary: string;
   proposal: string;
   status: string;
@@ -49,12 +53,20 @@ export default function Dashboard() {
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [jobs, setJobs] = useState<JobOpportunity[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [scraping, setScraping] = useState<boolean>(false);
   const [scrapeDone, setScrapeDone] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<string>('latest');
   const [selectedSource, setSelectedSource] = useState<string>('All');
+  const [resumeFilter, setResumeFilter] = useState<boolean>(false);
+  const [hideExpired, setHideExpired] = useState<boolean>(true);
+  const [expiredCount, setExpiredCount] = useState<number>(0);
   const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
   const [nicheQuery, setNicheQuery] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -75,8 +87,29 @@ export default function Dashboard() {
   const [blacklistInput, setBlacklistInput] = useState('');
   const [showBlacklist, setShowBlacklist] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [facets, setFacets] = useState<{
+    jobTypes: Record<string, number>;
+    remote: { true: number; false: number; unknown: number };
+    sources: { source: string; count: number }[];
+  } | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const industries = ['All', 'Entry Level', 'AI Automation', 'Video Editing', 'Appointment Setter', 'Social Media', 'Virtual Assistant'];
+
+  // Canonical employment types the API stores. Keep in sync with
+  // lib/job-attrs-core.ts `canonicalJobType`.
+  const JOB_TYPE_OPTIONS = [
+    { value: 'full-time', label: 'Full-time' },
+    { value: 'part-time', label: 'Part-time' },
+    { value: 'contract', label: 'Contract' },
+    { value: 'internship', label: 'Internship' },
+    { value: 'freelance', label: 'Freelance' },
+  ];
+
+  const typeFacetTotal = facets
+    ? JOB_TYPE_OPTIONS.reduce((sum, o) => sum + (facets.jobTypes?.[o.value] || 0), 0) + (facets.jobTypes?.unspecified || 0)
+    : 0;
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -87,7 +120,12 @@ export default function Dashboard() {
         const res = await fetch('/api/user-preferences');
         if (res.ok) {
           const data = await res.json();
-          if (!data.preferences?.setupComplete) { router.push('/onboarding'); return; }
+          if (!data?.preferences?.setupComplete) {
+            // Don't hijack the page with a redirect — the welcome modal in the
+            // layout explains the product and lets the user choose. We only
+            // surface a persistent banner so they can finish setup later.
+            setNeedsSetup(true);
+          }
         }
       } catch {}
       setOnboardingChecked(true);
@@ -101,6 +139,50 @@ export default function Dashboard() {
     fetchBlacklist();
     fetch('/api/me').then(r => r.ok && r.json()).then(d => { if (d?.user) setIsSubscribed(d.user.isSubscribed); }).catch(() => {});
   }, [onboardingChecked]);
+
+  // Re-fetch the first page whenever a filter changes. These filters are
+  // applied server-side, so they narrow the whole feed rather than just the
+  // rows already loaded in the browser.
+  // Niche query is excluded here because it is debounced with the free-text
+  // search below — putting it in this key would fire a request per keystroke.
+  const filtersKey = `${selectedSource}|${jobTypeFilter}|${remoteOnly ? 'r' : '-'}|${minSalary}|${hideExpired ? 'e' : '-'}|${resumeFilter ? 'f' : '-'}|${selectedIndustry}|${viewMode}`;
+  const firstRenderRef = useRef(true);
+  useEffect(() => {
+    if (!onboardingChecked) return;
+    if (firstRenderRef.current) { firstRenderRef.current = false; return; }
+    fetchOpportunities({ page: 1, append: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey, onboardingChecked]);
+
+  // Debounced free-text search (and niche search).
+  useEffect(() => {
+    if (!onboardingChecked) return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      fetchOpportunities({ page: 1, append: false });
+    }, 400);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, nicheQuery, onboardingChecked]);
+
+  // Infinite scroll: load the next page as the user reaches the bottom.
+  const loadMoreRef = useCallback(() => {
+    if (loading || loadingMore) return;
+    if (currentPage >= totalPages) return;
+    fetchOpportunities({ page: currentPage + 1, append: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, totalPages, loading, loadingMore]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) loadMoreRef(); },
+      { rootMargin: '900px 0px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMoreRef]);
 
   useEffect(() => {
     if (!sessionId || !scraping) return;
@@ -117,12 +199,7 @@ export default function Dashboard() {
             setScrapeDone(true);
             if (data.status === 'completed') {
               setProgressStatus('Done! ✅');
-              const leadsRes = await fetch('/api/leads');
-              if (leadsRes.ok) {
-                const leadsData = await leadsRes.json();
-                const dbLeads = leadsData?.leads || [];
-                setJobs(dbLeads.map(mapDbLeadToJob));
-              }
+              await fetchOpportunities({ page: 1, append: false });
               setTimeout(() => { setProgress(0); setScrapeDone(false); }, 2500);
             }
             setScraping(false);
@@ -162,6 +239,10 @@ export default function Dashboard() {
       url: lead.url,
       postedTime: lead.postedAt ? new Date(lead.postedAt).toLocaleDateString() : (lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : 'Just fetched'),
       score: lead.aiScore || 0,
+      fitScore: lead.fitScore ?? null,
+      fitMatched: lead.fitMatched || [],
+      fitReason: lead.fitReason || null,
+      applicationStatus: lead.applicationStatus || 'found',
       summary: lead.description?.substring(0, 200) || '',
       proposal: lead.proposalDraft || '',
       status: lead.status || 'active',
@@ -172,17 +253,85 @@ export default function Dashboard() {
     };
   };
 
-  const fetchOpportunities = async () => {
-    setLoading(true);
+  const fetchOpportunities = async (opts?: { page?: number; append?: boolean; resumeMatch?: boolean }) => {
+    const page = opts?.page ?? 1;
+    const append = opts?.append ?? false;
+    const useResumeMatch = opts?.resumeMatch ?? resumeFilter;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const response = await fetch('/api/leads');
+      const params = new URLSearchParams({ page: String(page), limit: '50' });
+      if (useResumeMatch) params.set('sort', 'fit');
+      if (hideExpired) params.set('maxAgeDays', '30');
+      // Filters run server-side so they apply to the whole feed, not just the
+      // pages that happen to be loaded in the browser.
+      if (selectedSource !== 'All') params.set('source', selectedSource);
+      if (jobTypeFilter !== 'All') params.set('jobType', jobTypeFilter);
+      if (remoteOnly) params.set('remote', 'true');
+      if (minSalary.trim() !== '' && !Number.isNaN(Number(minSalary))) params.set('minSalary', minSalary.trim());
+      if (selectedIndustry !== 'All') params.set('industry', selectedIndustry);
+      // The trash bin needs the soft-deleted rows the default query excludes.
+      if (viewMode === 'trash') params.set('includeDeleted', 'true');
+      const q = searchQuery.trim();
+      if (q) params.set('q', q);
+      // The niche query is a second free-text constraint. When the main search
+      // is empty it becomes the primary query; otherwise both must match.
+      const niche = nicheQuery.trim();
+      if (niche) {
+        if (q) params.set('niche', niche);
+        else params.set('q', niche);
+      }
+
+      const response = await fetch(`/api/leads?${params.toString()}`);
       if (response.ok) {
         const data = await response.json();
         const dbLeads = data?.leads || [];
-        setJobs(dbLeads.map(mapDbLeadToJob));
+        const mapped = dbLeads.map(mapDbLeadToJob);
+        setJobs(prev => (append ? [...prev, ...mapped] : mapped));
+        setCurrentPage(data?.pagination?.page ?? page);
+        setTotalPages(data?.pagination?.totalPages ?? 1);
+        setTotalCount(data?.pagination?.total ?? mapped.length);
+        if (!append && data?.facets) setFacets(data.facets);
+        if (!append) setExpiredCount(data?.hiddenExpired ?? 0);
       }
     } catch (err) { console.error('Failed reading records:', err); }
     setLoading(false);
+    setLoadingMore(false);
+  };
+
+  const handleJobPilot = async (opportunity: JobOpportunity, action: 'score' | 'tailor') => {
+    setApplyingMap(prev => ({ ...prev, [opportunity.id]: true }));
+    setScrapeError(null);
+    try {
+      const res = await fetch('/api/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, leadId: opportunity.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setScrapeError(data?.error || `JobPilot ${action} failed`);
+        return;
+      }
+      setJobs(prev => prev.map(j => j.id === opportunity.id
+        ? {
+            ...j,
+            fitScore: data?.fit?.score ?? j.fitScore,
+            fitMatched: data?.fit?.matched ?? j.fitMatched,
+            fitReason: data?.fit?.reason ?? j.fitReason,
+            applicationStatus: action === 'tailor' ? 'drafted' : j.applicationStatus,
+          }
+        : j));
+      if (action === 'tailor') {
+        setScrapeError(null);
+        setProgressStatus('Draft ready — review it in the Approval Queue');
+      }
+    } catch (err) {
+      console.error('JobPilot failed:', err);
+      setScrapeError('JobPilot request failed. Check your connection.');
+    } finally {
+      setApplyingMap(prev => ({ ...prev, [opportunity.id]: false }));
+    }
   };
 
   const fetchBlacklist = async () => {
@@ -421,35 +570,20 @@ export default function Dashboard() {
     return acc;
   }, {} as Record<string, number>);
 
-  const sortedSources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]);
+  // Prefer the server-side facet counts: the loaded page only contains the
+  // sources that happened to appear in it, so deriving the list from loaded
+  // jobs would hide sources that still have plenty of results.
+  const sortedSources: [string, number][] = facets?.sources?.length
+    ? facets.sources.map(s => [s.source, s.count] as [string, number])
+    : Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]);
 
+  // Source, industry, niche, search, salary, remote and job-type filtering all
+  // happen server-side, so the API has already narrowed the feed. Re-applying
+  // them here would drop rows the server legitimately returned (the client
+  // used to search tags while the API searched title/description/company) and
+  // make the "Found N" counter disagree with the API total.
   const displayedOpportunities = jobs
     .filter(job => viewMode === 'active' ? !job.deleted : job.deleted)
-    .filter(job => selectedSource === 'All' || job.source === selectedSource)
-    .filter(filterByIndustry)
-    .filter(job => {
-      if (!nicheQuery) return true;
-      const lookup = `${job.title} ${job.description} ${job.summary}`.toLowerCase();
-      return lookup.includes(nicheQuery.toLowerCase());
-    })
-    .filter(job => {
-      if (!searchQuery || searchQuery.trim() === '') return true;
-      const q = searchQuery.trim().toLowerCase();
-      const haystack = `${job.title} ${job.company || ''} ${job.description} ${job.tags.join(' ')}`.toLowerCase();
-      return haystack.includes(q);
-    })
-    .filter(job => {
-      if (!minSalary || minSalary.trim() === '') return true;
-      const min = Number(minSalary);
-      if (Number.isNaN(min)) return true;
-      const hasSalary = job.salaryMin != null || job.salaryMax != null;
-      if (!hasSalary) return false;
-      const sMin = job.salaryMin ?? job.salaryMax ?? 0;
-      const sMax = job.salaryMax ?? job.salaryMin ?? 0;
-      return sMin >= min || sMax >= min;
-    })
-    .filter(job => !remoteOnly || job.remote !== false)
-    .filter(job => jobTypeFilter === 'All' || job.jobType === jobTypeFilter)
     .sort((a, b) => {
       if (sortBy === 'highest-paid') {
         const aMax = a.salaryMax ?? a.salaryMin ?? -1;
@@ -484,6 +618,8 @@ export default function Dashboard() {
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Workspace</span>
             <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Profile & Resume</Link>
+            <Link href="/approval-queue" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-amber-300/90 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">✨ Approval Queue</Link>
+            <Link href="/tracker" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-emerald-300/90 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">📊 Application Tracker</Link>
           </div>
 
           <div className="space-y-1">
@@ -564,7 +700,7 @@ export default function Dashboard() {
             <a href="/local-leads" className="text-xs sm:text-sm text-indigo-300 hover:underline shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded">Local</a>
           </div>
           <div className="flex items-center gap-2 overflow-x-auto">
-            <button onClick={fetchOpportunities} disabled={loading} aria-label="Refresh leads" title="Refresh leads" className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">{loading ? 'Refreshing...' : '🔄'}</button>
+            <button onClick={() => fetchOpportunities({ page: 1, append: false })} disabled={loading} aria-label="Refresh leads" title="Refresh leads" className="px-3 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm bg-slate-800 hover:bg-slate-700 text-slate-200 shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">{loading ? 'Refreshing...' : '🔄'}</button>
             <button onClick={handleRunScraperPipeline} disabled={scraping} className={`px-3 sm:px-4 py-2 text-xs font-bold rounded-xl tracking-wide transition shadow-sm shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${scraping ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}>
               {scraping ? 'Scraping...' : '🔍 Pull'}
             </button>
@@ -597,7 +733,29 @@ export default function Dashboard() {
           <div className="px-6 py-2 bg-indigo-500/10 border-b border-indigo-500/20 text-xs text-indigo-300">{lastScrapeStats}</div>
         )}
 
-        <main className="flex-1 p-3 sm:p-6 max-w-5xl w-full mx-auto space-y-5">
+        {needsSetup && (
+          <div className="px-4 sm:px-6 py-3 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-200 flex flex-wrap items-center gap-3">
+            <span aria-hidden="true">⚡</span>
+            <span className="flex-1 min-w-[12rem]">
+              Add your resume to unlock <strong>resume-match ranking</strong> and tailored applications.
+            </span>
+            <Link
+              href="/onboarding"
+              className="rounded-lg bg-amber-500 px-3 py-1.5 font-semibold text-slate-950 transition hover:bg-amber-400 focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:outline-none"
+            >
+              Set up my profile
+            </Link>
+            <button
+              onClick={() => setNeedsSetup(false)}
+              aria-label="Dismiss setup reminder"
+              className="rounded-lg p-1 text-amber-300/70 hover:text-amber-200 hover:bg-amber-500/10 transition focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:outline-none"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        <main className="flex-1 p-3 sm:p-6 max-w-5xl w-full mx-auto space-y-5 overflow-y-auto max-h-[calc(100vh-4rem)]">
           <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-2.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Target Industry / Niche Selection</span>
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
@@ -615,6 +773,37 @@ export default function Dashboard() {
 
           <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-3">
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 block">Refine Results</span>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <button
+                onClick={() => {
+                  const next = !resumeFilter;
+                  setResumeFilter(next);
+                  fetchOpportunities({ page: 1, append: false, resumeMatch: next });
+                }}
+                aria-pressed={resumeFilter}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${resumeFilter ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-900/30' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-amber-500/40'}`}
+              >
+                {resumeFilter ? '✓ Resume Match ON' : 'Resume Match (Auto)'}
+              </button>
+              <button
+                onClick={() => fetchOpportunities({ page: 1, append: false })}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+              >
+                ↻ Refresh
+              </button>
+              <button
+                onClick={() => {
+                  const next = !hideExpired;
+                  setHideExpired(next);
+                  fetchOpportunities({ page: 1, append: false });
+                }}
+                aria-pressed={hideExpired}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${hideExpired ? 'bg-rose-600 text-white shadow-lg shadow-rose-950/30' : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-rose-500/40'}`}
+              >
+                {hideExpired ? '✓ Expired hidden' : 'Show expired'}
+              </button>
+              <span className="self-center text-[11px] text-slate-500">Ranks by how well each job matches your resume</span>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
               <label className="block">
                 <span className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Search</span>
@@ -632,17 +821,21 @@ export default function Dashboard() {
               <label className="block">
                 <span className="block text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Job type</span>
                 <select value={jobTypeFilter} onChange={e => setJobTypeFilter(e.target.value)} className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
-                  <option value="All">All types</option>
-                  <option value="full-time">Full-time</option>
-                  <option value="part-time">Part-time</option>
-                  <option value="contract">Contract</option>
-                  <option value="internship">Internship</option>
+                  <option value="All">All types{typeFacetTotal ? ` (${typeFacetTotal})` : ''}</option>
+                  {JOB_TYPE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}{facets?.jobTypes?.[opt.value] != null ? ` (${facets.jobTypes[opt.value]})` : ''}
+                    </option>
+                  ))}
                 </select>
               </label>
 
               <label className="flex items-center gap-2.5 cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 min-h-[38px]">
                 <input type="checkbox" checked={remoteOnly} onChange={e => setRemoteOnly(e.target.checked)} className="h-4 w-4 rounded accent-indigo-500 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" />
                 <span className="text-sm text-slate-200">Remote only</span>
+                {facets?.remote?.true != null && (
+                  <span className="ml-auto text-[11px] tabular-nums text-slate-500">{facets.remote.true}</span>
+                )}
               </label>
             </div>
 
@@ -662,7 +855,7 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800 rounded-xl px-3 sm:px-4 py-2.5 gap-2">
-            <span aria-live="polite" className="text-xs sm:text-sm font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{displayedOpportunities.length}</strong> {displayedOpportunities.length === 1 ? 'entry' : 'entries'}</span>
+            <span aria-live="polite" className="text-xs sm:text-sm font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{viewMode === 'trash' ? displayedOpportunities.length : totalCount}</strong> {viewMode === 'trash' ? (displayedOpportunities.length === 1 ? 'entry' : 'entries') : 'matching jobs'}{hideExpired && expiredCount > 0 ? <span className="text-rose-300/80"> · {expiredCount} expired hidden</span> : null}</span>
             <div className="flex items-center gap-2">
               {viewMode === 'trash' && totalTrashCount > 0 && (
                 <button onClick={clearTrashBin} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
@@ -749,6 +942,11 @@ export default function Dashboard() {
                         {opportunity.location && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">📍</span>{opportunity.location}</span>}
                         <span className={`inline-flex items-center gap-1.5 font-semibold ${hasSalary ? 'text-emerald-400' : 'text-slate-500'}`}><span aria-hidden="true">💰</span>{displaySalary(opportunity)}</span>
                         {opportunity.jobType && <span className="inline-flex items-center gap-1.5"><span aria-hidden="true">💼</span>{capitalize(opportunity.jobType)}</span>}
+                        {opportunity.fitScore != null && (
+                          <span className={`inline-flex items-center gap-1 text-indigo-400 font-semibold ${opportunity.fitScore >= 60 ? 'text-emerald-400' : ''}`}>
+                            <span aria-hidden="true">🎯</span>Fit {opportunity.fitScore}%{opportunity.fitMatched?.length ? ` (${opportunity.fitMatched.slice(0, 3).join(', ')})` : ''}
+                          </span>
+                        )}
                         {opportunity.score > 0 && <span className="inline-flex items-center gap-1.5 text-indigo-400 font-semibold"><span aria-hidden="true">⭐</span>Score {opportunity.score}/10</span>}
                       </div>
 
@@ -765,6 +963,22 @@ export default function Dashboard() {
                         <a href={opportunity.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
                           Apply <span aria-hidden="true">↗</span>
                         </a>
+                        <button
+                          onClick={() => handleJobPilot(opportunity, 'score')}
+                          disabled={isApplying}
+                          title="Score this job against your resume"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition shrink-0 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+                        >
+                          {isApplying ? '…' : '🎯 Fit'}
+                        </button>
+                        <button
+                          onClick={() => handleJobPilot(opportunity, 'tailor')}
+                          disabled={isApplying}
+                          title="Tailor your resume + write a cover email, then send it to the approval queue"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 transition shrink-0 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+                        >
+                          {isApplying ? '…' : '✨ Tailor'}
+                        </button>
 
                         {viewMode === 'active' ? (
                           <>
@@ -844,6 +1058,24 @@ export default function Dashboard() {
               })}
             </div>
           )}
+
+          {/* Infinite-scroll trigger: keeps loading pages as the user scrolls. */}
+          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+
+          {!loading && viewMode === 'active' && currentPage < totalPages && (
+            <div className="pt-2 flex flex-col items-center gap-2">
+              <button
+                onClick={loadMoreRef}
+                disabled={loadingMore}
+                className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold shadow-lg shadow-indigo-950/40 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+              >
+                {loadingMore ? 'Loading…' : `Load more jobs (${displayedOpportunities.length} of ${totalCount})`}
+              </button>
+              <span className="text-[11px] text-slate-500">
+                {currentPage < totalPages ? 'Scroll for more — the page loads as you go' : `All ${totalCount} jobs loaded`}
+              </span>
+            </div>
+          )}
         </main>
       </div>
 
@@ -866,6 +1098,8 @@ export default function Dashboard() {
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Workspace</span>
                 <Link href="/profile" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-slate-400 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" onClick={() => setMobileFilterOpen(false)}>Profile & Resume</Link>
+                <Link href="/approval-queue" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-amber-300/90 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" onClick={() => setMobileFilterOpen(false)}>✨ Approval Queue</Link>
+                <Link href="/tracker" className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl text-emerald-300/90 hover:bg-slate-900 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none" onClick={() => setMobileFilterOpen(false)}>📊 Application Tracker</Link>
               </div>
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">Filter Platforms</span>

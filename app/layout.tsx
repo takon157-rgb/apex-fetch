@@ -6,8 +6,9 @@ import Header from './components/Header';
 import OnboardingPopup from './components/OnboardingPopup';
 
 export const metadata: Metadata = {
-  title: 'ApexFetch Dashboard',
-  description: 'ApexFetch intelligent lead discovery and operations platform',
+  title: 'JobPilot — Job search on autopilot',
+  description:
+    'JobPilot finds real openings across 30+ job boards, ranks them against your resume, tailors applications, and sends nothing without your approval.',
 };
 
 export default function RootLayout({

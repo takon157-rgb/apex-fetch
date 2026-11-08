@@ -1,148 +1,168 @@
-# ⚡ ApexFetch
+# 🚀 JobPilot
 
-> High-velocity, AI-powered remote job lead discovery and operations platform.
+> Finds real job openings, ranks them against your resume, tailors an application for every good match, and sends nothing without your approval.
 
-ApexFetch aggregates, evaluates, and ranks targeted career opportunities from 8+ live sources in real-time. By combining RSS/API feed parsing with automated scoring, resume-tailored filtering, and Discord dispatch, it transforms raw job boards into a high-converting pipeline.
-
----
-
-## 🛠️ The Tech Stack
-
-- **Core Framework:** Next.js 14 (App Router)
-- **Authentication:** Clerk (Passwordless + Google SSO Magic Links)
-- **Database:** PostgreSQL via Supabase, managed through Prisma ORM
-- **AI Layer:** Google Gemini API (Job scoring, resume tailoring, proposal drafting)
-- **Scraping:** Native RSS/JSON feed ingestion + Playwright headless workers
-- **UI:** Tailwind CSS with dark-mode design
+JobPilot is a job-search automation platform. It ingests live postings from **34 sources** — company career boards plus remote/freelance job boards — ranks them against your resume, drafts tailored applications, and holds every outbound email in an approval queue for a human to release.
 
 ---
 
-## 🔥 Key Features
+## 🎯 What it actually does
 
-### Unified Scraper Pipeline
-- **8 sources** scraped sequentially with rate-limit delays and retry/backoff: RemoteOK (API), Remotive (JSON API), WeWorkRemotely, Himalayas, WorkingNomads, AuthenticJobs, Jobicy, LandingJobs
-- **Progress tracking** — real-time progress bar showing per-source status during pull
-- **Trend discovery** — Playwright workers identify trending company domains from job boards
-- **Source health monitoring** — every scrape records per-source success/failure
-
-### AI-Powered Resume-Tailored Filtering
-- Every job is scored against your **target roles, core skills, and parsed resume summary**
-- Jobs matching your profile keywords receive score bonuses
-- Gemini AI can be called per-job for deep analysis with resume context injected into the prompt
-
-### Smart Feed Pruning
-- On each pull, low-scored entries (aiScore < 8) are automatically archived unless tracked or applied
-- Only high-quality leads (score 8-10) survive alongside your tracked/applied entries
-
-### Dashboard Controls
-- **Track** — mark leads for follow-up (persisted to DB)
-- **Apply** — mark leads as applied with timestamp
-- **Profile** — send any job to the Career Workspace for AI resume tailoring
-- **Send to Discord** — manually dispatch any lead to your configured webhook
-- **Delete / Purge** — per-row deletion that persists permanently
-- **Restore** — recover deleted leads from the Trash Bin
-
-### Blocklist Management
-- Add keywords to filter unwanted postings (e.g., "blockchain", "crypto")
-- Blocklist is stored per-user and applied during every scrape
-
-### Career Profile Workspace
-- Upload resume (PDF/DOC) or paste text
-- Send jobs for review and generate AI-tailored resumes via Gemini
-- Full history of reviewed jobs with tailored resume viewer
-
-### Discord Integration
-- Configure your webhook URL in Profile settings
-- Auto-dispatch high-scoring leads (score >= 7) during scrape
-- Manual dispatch per-lead from the dashboard
-- Webhook test button in settings
-
-### Admin Command Center
-- User management with Upgrade/Demote subscription toggling
-- Set credits per user
-- Platform stats: total users, leads, subscribed vs free users
-
-### Auto-Scrape Cron
-- Scheduled endpoint (`/api/cron/scrape`) for automatic scraping of subscribed users
-- Protected by `CRON_SECRET` header
-
-### Local Lead Scraper
-- Embedded Google Maps Places API engine for local business discovery
-- AI-generated cold call scripts and email pitches
+1. **Finds real jobs.** 21 company career boards (Greenhouse + Ashby) and 13 aggregator feeds, scraped on demand or on a daily cron. No mock data, no placeholder rows.
+2. **Ranks by resume fit.** Every lead is scored against your target roles, core skills and parsed resume — with an optional LLM pass for deeper analysis.
+3. **Tailors applications.** Generates a tailored resume and a cover email per job, then checks the draft against your master resume to flag anything it can't support.
+4. **Never sends without approval.** Drafts wait in the Approval Queue. A daily cap limits how many applications can go out, and every send is recorded in the Tracker.
 
 ---
 
-## ⚙️ Environment Configuration
+## 🛠️ Stack
 
-Create `.env.local` from the template:
-
-```bash
-cp .env.example .env.local
-```
-
-| Variable | Purpose |
+| Layer | Choice |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string (Supabase) |
-| `DIRECT_URL` | Direct connection for migrations |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk public key |
-| `CLERK_SECRET_KEY` | Clerk secret key |
-| `CLERK_WEBHOOK_SECRET` | Clerk webhook signing secret |
-| `GEMINI_API_KEY` | Google Gemini API key for AI features |
-| `GEMINI_MODEL` | Gemini model name (default: `gemini-2.5-flash`) |
-| `ADMIN_CLERK_ID` | Clerk user ID granted admin access |
-| `NEXT_PUBLIC_ADMIN_CLERK_ID` | Public admin ID for frontend checks |
-| `CRON_SECRET` | Secret for authenticating cron requests |
-| `NEXT_PUBLIC_STRIPE_LINK` | Stripe checkout link for upgrades |
-| `SUPABASE_URL` | Supabase project URL (for storage) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (for resume storage) |
-| `DISCORD_WEBHOOK_URL` | Fallback global Discord webhook URL |
+| Framework | Next.js 14 (App Router) |
+| Auth | Clerk (email + Google) |
+| Database | PostgreSQL (Supabase) via Prisma |
+| UI | Tailwind CSS, dark theme |
+| AI | Gemini (scoring, tailoring, drafting) with a deterministic offline fallback |
+| Payments | Paystack (subscriptions) |
+| Hosted | Vercel + Supabase |
 
 ---
 
-## 🏎️ Getting Started
+## 📡 Sources
 
-**1. Install dependencies**
+**Company boards (21)** — each a live Greenhouse or Ashby endpoint:
+Stripe, OpenAI, Anthropic-adjacent boards, Vanta, Sentry, Linear, Notion, Perplexity, Ramp, Figma, Instacart, Gusto, Discord, Cursor, OpenRouter, Replit, Resend, MongoDB, Elastic, GitLab, Reddit, Robinhood.
+
+**Aggregators (13)** — RemoteOK, Remotive, WeWorkRemotely, Himalayas (×2 pages), WorkingNomads, AuthenticJobs, Jobicy (main + part-time + contract + internship feeds), LandingJobs, Arbeitnow.
+
+Plus a **company career-page discovery** pass that resolves domains from previously seen postings and scrapes their boards directly.
+
+Every source is health-checked on each run; failures are reported per source rather than silently dropping the run.
+
+---
+
+## ✨ Features
+
+### Feed
+- **Source-balanced ordering.** Leads are interleaved by board so one high-volume aggregator can't take over the page. Page 1 typically shows 25+ distinct sources.
+- **Infinite scroll** with an accessible "Load more" fallback. The candidate list is fetched once and reused, so scrolling never repeats or skips a job.
+- **Server-side filters** that narrow the whole feed, not just loaded rows: source, job type, remote, minimum salary, niche keywords, free-text search, and freshness.
+- **Live filter counts.** The job-type dropdown shows exactly how many jobs each option will yield before you click it.
+- **Expired-posting control.** A freshness window hides stale leads, with a running count of how many are hidden. Himalayas postings are additionally dropped when their own expiry date has passed.
+
+### Resume matching
+- Deterministic heuristic scoring (no API key needed) with an optional LLM refinement.
+- Matched skills, missing skills, and a plain-English reason for every lead.
+- Skill-gap view on the Profile page.
+
+### Applications
+- Tailored resume + cover email generated per job.
+- A verification pass flags claims in the draft that the master resume doesn't support.
+- PDF resume generation and attachment.
+- Approval Queue with approve / skip / send, and a daily send cap.
+- Tracker showing every application and its status: `found → drafted → approved → sent → replied → interview → rejected`.
+
+### Platform
+- Per-user data isolation — every lead, profile and preference is scoped by user id.
+- Admin dashboard with user management, subscription toggles and platform stats.
+- Per-user blocklist applied during every scrape.
+- Discord dispatch for high-scoring leads.
+- Scheduled daily scrape and a weekly worker via GitHub Actions.
+- Paystack subscription flow with signature-verified webhooks.
+
+---
+
+## ⚙️ Setup
+
+**1. Install**
 ```bash
 npm install
 ```
 
-**2. Sync the database schema**
+**2. Configure** — copy `.env.example` to `.env.local` and fill in the values:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Supabase Postgres connection string |
+| `DIRECT_URL` | Direct (non-pooled) connection for migrations |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
+| `CLERK_SECRET_KEY` | Clerk secret key |
+| `CLERK_WEBHOOK_SECRET` | Clerk webhook signing secret |
+| `GEMINI_API_KEY` | Gemini key for AI scoring/tailoring (optional) |
+| `GEMINI_MODEL` | Gemini model id (default `gemini-2.5-flash`) |
+| `ADMIN_CLERK_ID` | Clerk user id granted admin access |
+| `NEXT_PUBLIC_ADMIN_CLERK_ID` | Same id, for client-side checks |
+| `CRON_SECRET` | Secret header for cron endpoints |
+| `PAYSTACK_SECRET_KEY` | Paystack API secret |
+| `PAYSTACK_WEBHOOK_SECRET` | Paystack webhook signing secret |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (resume storage) |
+| `DISCORD_WEBHOOK_URL` | Fallback global Discord webhook |
+| `NEXT_PUBLIC_STRIPE_LINK` | Checkout link for upgrades |
+
+**3. Sync the schema**
 ```bash
 npx prisma db push
 ```
 
-**3. Start the dev server**
+**4. Run**
 ```bash
 npm run dev
 ```
-
-**4. Open the app**
-Navigate to `http://localhost:3000` and sign in via Clerk.
+Open `http://localhost:3000` and sign in with Clerk.
 
 ---
 
-## 📦 Build for Production
+## 🧪 Verification
 
 ```bash
-npm run build
+npm test          # 85 unit tests across the pure scoring/parsing/filter cores
+npx tsc --noEmit  # type check
+npm run build     # production build
 ```
 
-The build compiles TypeScript, generates the Prisma client, and assembles an optimized production bundle ready for Vercel deployment.
+The test suite covers board parsers (Greenhouse, Ashby, Arbeitnow, Jobicy, Himalayas), the canonical job-type vocabulary across six languages, remote detection, the feed query builder, source grouping, resume-fit scoring, draft verification and the send rails.
+
+Live-data harnesses (need `DATABASE_URL`):
+
+| Script | Checks |
+|---|---|
+| `node scripts/smoke-sources.mjs` | Every source is reachable and returns items |
+| `node scripts/test-parsers.mjs` | Parsers against live API responses |
+| `node scripts/e2e-scrape.mjs` | Full pipeline against the real database |
+| `node scripts/verify-filters.mjs` | Every feed filter returns real rows |
+| `node scripts/verify-feed.mjs` | Feed depth, source diversity, ordering stability |
+| `node scripts/verify-freshness.mjs` | Posted-date coverage and expiry handling |
+| `node scripts/backfill-job-attrs.mjs` | Normalise job type / remote across stored leads |
 
 ---
 
-## 🛠️ CLI Toolkit
+## 🔐 Security notes
 
-| Command | Action |
-|---|---|
-| `npm run dev` | Start local development server |
-| `npm run build` | Build for production |
-| `npx prisma db push` | Sync schema to database |
-| `npx prisma studio` | Open Prisma data browser |
-| `npx prisma migrate dev` | Create and apply migrations |
+- Every route requires a Clerk session; API routes return `401` and pages redirect to sign-in.
+- All lead queries are scoped by `userId` — one user can never read or act on another's leads.
+- The stored resume PDF is **never** returned to the browser; the API reports only whether one exists, and server-side routes read it directly.
+- Webhook signatures use constant-time comparison (`crypto.timingSafeEqual`).
+- The rate limiter is bounded and self-sweeping, so it can't grow without limit.
+- No `.env` file is tracked by git; `.env.example` contains placeholders only.
+- The admin dashboard is gated by `ADMIN_CLERK_ID` server-side and rate limited.
+
+---
+
+## 📦 Deployment
+
+The app deploys to Vercel with Supabase as the database.
+
+```bash
+vercel link
+vercel --prod
+```
+
+Set every environment variable from the table above in the Vercel project settings. `.github/workflows/` runs the daily scrape and weekly worker on a schedule.
 
 ---
 
 ## 📄 License
 
-Distributed under the MIT License.
+MIT.

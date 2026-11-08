@@ -81,10 +81,26 @@ model Lead {
   deleted       Boolean  @default(false)
   createdAt     DateTime @default(now())
 
+  // --- JobPilot application lifecycle ---
+  fitScore         Int?
+  fitMatched       String[] @default([])
+  fitMissing       String[] @default([])
+  fitReason        String?  @db.Text
+  tailoredResume   String?  @db.Text
+  coverEmail       String?  @db.Text
+  applicationEmail String?
+  applicationStatus String  @default("found")
+  approvedAt       DateTime?
+  sentAt           DateTime?
+  resumePdfPath    String?
+
+  updatedAt        DateTime @default(now()) @updatedAt
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, postedAt])
   @@index([url])
+  @@index([userId, applicationStatus])
 }
 
 model ReviewedJob {

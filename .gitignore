@@ -27,5 +27,8 @@ backups/
 # Build artifacts
 tsconfig.tsbuildinfo
 
+# Local dev server log
+devserver.log
+
 # Supabase CLI local config
 supabase/

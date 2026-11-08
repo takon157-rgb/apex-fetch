@@ -43,6 +43,12 @@ export default function Header() {
           <Link href="/" className="text-sm text-slate-300 hover:text-white">
             Live Feed
           </Link>
+          <Link href="/approval-queue" className="text-sm text-amber-300 hover:text-amber-200">
+            Approval Queue
+          </Link>
+          <Link href="/tracker" className="text-sm text-emerald-300 hover:text-emerald-200">
+            Tracker
+          </Link>
           <Link href="/local-leads" className="text-sm text-indigo-300 hover:underline">
             Local Leads
           </Link>
@@ -89,6 +95,12 @@ export default function Header() {
           <div className="px-4 py-3 space-y-2">
             <Link href="/" className="block text-slate-200" onClick={() => setOpen(false)}>
               Live Feed
+            </Link>
+            <Link href="/approval-queue" className="block text-amber-300" onClick={() => setOpen(false)}>
+              Approval Queue
+            </Link>
+            <Link href="/tracker" className="block text-emerald-300" onClick={() => setOpen(false)}>
+              Tracker
             </Link>
             <Link href="/local-leads" className="block text-indigo-300" onClick={() => setOpen(false)}>
               Local Leads

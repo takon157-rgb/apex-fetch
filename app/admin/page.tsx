@@ -42,8 +42,7 @@ export default function AdminPage() {
       .finally(() => setChecked(true));
   }, [isLoaded]);
 
-  const fetchStats = async () => {
-    setLoading(true);
+  const fetchStats = async () => {    setLoading(true);
     try {
       const res = await fetch('/api/admin/users');
       const data = await res.json();
@@ -85,7 +84,23 @@ export default function AdminPage() {
     setTogglingId(null);
   };
 
-  if (!isLoaded || !isAdmin) return <div className="min-h-screen flex items-center justify-center bg-slate-950"><div className="animate-pulse text-slate-400 text-sm">Verifying access...</div></div>;
+  if (!isLoaded) return <div className="min-h-screen flex items-center justify-center bg-slate-950"><div className="animate-pulse text-slate-400 text-sm">Verifying access...</div></div>;
+  // A non-admin lands here from the redirect — show a clear message instead of
+  // spinning on "Verifying access..." forever.
+  if (checked && !isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
+        <div className="text-center">
+          <p className="text-3xl font-bold text-white">Access denied</p>
+          <p className="mt-2 text-sm text-slate-400">This area is restricted to platform administrators.</p>
+          <button onClick={() => router.push('/')} className="mt-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition">
+            Back to the feed
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!isAdmin) return <div className="min-h-screen flex items-center justify-center bg-slate-950"><div className="animate-pulse text-slate-400 text-sm">Verifying access...</div></div>;
   if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="animate-spin h-8 w-8 border-2 border-indigo-500 border-t-transparent rounded-full" /></div>;
 
   return (

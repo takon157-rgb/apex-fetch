@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 const PAYSTACK_API = 'https://api.paystack.co';
 
 function getSecret(): string {
@@ -40,12 +42,24 @@ export async function initializeTransaction(params: {
 }
 
 export function verifyWebhook(signature: string, rawBody: string): boolean {
-  const secret = getSecret();
-  const hmac = require('crypto')
-    .createHmac('sha512', secret)
-    .update(rawBody)
-    .digest('hex');
-  return hmac === signature;
+  if (!signature) return false;
+  let secret: string;
+  try {
+    secret = getSecret();
+  } catch {
+    // Without a configured secret no signature can be valid. Failing closed
+    // matters here: this endpoint grants paid subscriptions.
+    return false;
+  }
+
+  const hmac = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+
+  // Constant-time comparison. A plain `===` leaks the matching prefix length
+  // through timing, which is enough to forge a signature byte by byte.
+  const received = Buffer.from(signature, 'utf8');
+  const expected = Buffer.from(hmac, 'utf8');
+  if (received.length !== expected.length) return false;
+  return crypto.timingSafeEqual(received, expected);
 }
 
 export const PLANS = {

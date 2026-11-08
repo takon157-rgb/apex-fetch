@@ -1,4 +1,8 @@
 import { prisma } from './prisma';
+import { SOURCES, MAX_JOBS_PER_BOARD } from './source-registry';
+import type { SourceDef } from './source-registry';
+import { parseGreenhouseBoard, parseAshbyBoard, parseArbeitNowBoard, parseJobicyApi, parseHimalayasApi } from './board-parsers';
+import { resolveJobType, resolveRemote } from './job-attrs-core';
 import * as cheerio from 'cheerio';
 import {
   BLOCK_KEYWORDS,
@@ -19,17 +23,10 @@ export { cleanHtml, extractCompanyDomains };
 // ---------------------------------------------------------------------------
 // Source registry — public APIs/RSS only (no LinkedIn/Telegram direct scraping).
 // Indeed (RSS deprecated/blocked) and StackOverflow Jobs (RSS discontinued) removed.
+// The live list lives in ./source-registry so it can be smoke-tested directly.
 // ---------------------------------------------------------------------------
-export const SOURCES: { name: string; url: string; type: 'rss' | 'json' | 'api'; parser: 'rss' | 'remoteok' | 'remotive' | 'workingnomads' }[] = [
-  { name: 'RemoteOK',       url: 'https://remoteok.com/api', type: 'api',  parser: 'remoteok' },
-  { name: 'Remotive',       url: 'https://remotive.com/api/remote-jobs', type: 'api', parser: 'remotive' },
-  { name: 'WeWorkRemotely', url: 'https://weworkremotely.com/remote-jobs.rss', type: 'rss', parser: 'rss' },
-  { name: 'Himalayas',      url: 'https://himalayas.app/jobs/rss', type: 'rss', parser: 'rss' },
-  { name: 'WorkingNomads',  url: 'https://www.workingnomads.co/api/exposed_jobs/', type: 'api', parser: 'workingnomads' },
-  { name: 'AuthenticJobs',  url: 'https://authenticjobs.com/?feed=job_feed&job_types=freelance,full-time,internship,part-time&search_location=remote', type: 'rss', parser: 'rss' },
-  { name: 'Jobicy',         url: 'https://jobicy.com/?feed=job_feed', type: 'rss', parser: 'rss' },
-  { name: 'LandingJobs',    url: 'https://landing.jobs/feed?remote=true', type: 'rss', parser: 'rss' },
-];
+export { SOURCES };
+export type { SourceDef };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +53,15 @@ export interface ScrapedItem {
 // ---------------------------------------------------------------------------
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+// Hostname of a URL, used to rate-limit per-host rather than globally.
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 async function fetchWithRetry(url: string, opts: RequestInit = {}, retries = 2, timeoutMs = 15000): Promise<Response | null> {
@@ -113,7 +119,7 @@ async function parseRss(feed: { name: string; url: string }): Promise<ScrapedIte
       $el.find('summary').first().text() ||
       $el.find('encoded').first().text() ||
       '';
-    const description = cleanHtml(descRaw).slice(0, 2000);
+    const description = cleanHtml(descRaw).slice(0, 4000);
     const company = cleanHtml($el.find('company').first().text() || $el.find('company_name').first().text() || $el.find('author').first().text() || $el.find('dc\\:creator').first().text());
     const location = cleanHtml($el.find('location').first().text() || $el.find('city').first().text() || $el.find('region').first().text());
     const postedAt = $el.find('pubDate').first().text() || $el.find('published').first().text() || $el.find('updated').first().text() || $el.find('date').first().text();
@@ -155,7 +161,7 @@ async function parseRemotive(url: string): Promise<ScrapedItem[]> {
     const salary = parseSalary(job.salary || '');
     return {
       title,
-      description: cleanHtml(job.description || '').slice(0, 2000),
+      description: cleanHtml(job.description || '').slice(0, 4000),
       url: job.url || '',
       source: 'Remotive',
       company: cleanHtml(job.company_name || ''),
@@ -165,7 +171,7 @@ async function parseRemotive(url: string): Promise<ScrapedItem[]> {
       salaryCurrency: salary.currency,
       jobType: jtMap[(job.job_type || '').toLowerCase()] || job.job_type || undefined,
       postedAt: job.publication_date ? new Date(job.publication_date).toISOString() : undefined,
-      tags: (job.tags || []).map((t: string) => String(t).toLowerCase()).slice(0, 8),
+      tags: toTagArray(job.tags).slice(0, 8),
       remote: /worldwide|remote|anywhere/i.test(`${job.candidate_required_location || ''}`) ? true : undefined,
     } as ScrapedItem;
   }).filter((i: ScrapedItem) => i.title && i.url);
@@ -178,7 +184,7 @@ async function parseRemoteOk(): Promise<ScrapedItem[]> {
   if (!Array.isArray(data)) return [];
   return data.slice(1).map((job: any) => ({
     title: cleanHtml(job.position || ''),
-    description: cleanHtml(job.description || '').slice(0, 2000),
+    description: cleanHtml(job.description || '').slice(0, 4000),
     url: job.url || `https://remoteok.com/remote-jobs/${job.slug}`,
     source: 'RemoteOK',
     company: cleanHtml(job.company || ''),
@@ -188,9 +194,21 @@ async function parseRemoteOk(): Promise<ScrapedItem[]> {
     salaryCurrency: job.salary_currency || 'USD',
     jobType: job.employment_type || undefined,
     postedAt: job.date ? new Date(job.date).toISOString() : undefined,
-    tags: (job.tags || []).map((t: string) => t.toLowerCase()).slice(0, 8),
+    tags: toTagArray(job.tags).slice(0, 8),
     remote: true,
   } as ScrapedItem)).filter((i: ScrapedItem) => i.title && i.url);
+}
+
+// Job boards are inconsistent about tags: some send an array, some send a
+// comma-separated string, some send null. Normalise all of them to string[].
+function toTagArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(t => String(t).trim().toLowerCase()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  }
+  return [];
 }
 
 async function parseWorkingNomads(url: string): Promise<ScrapedItem[]> {
@@ -203,7 +221,7 @@ async function parseWorkingNomads(url: string): Promise<ScrapedItem[]> {
     const desc = cleanHtml(job.description || job.summary || '');
     return {
       title,
-      description: desc.slice(0, 2000),
+      description: desc.slice(0, 4000),
       url: job.url || job.link || '',
       source: 'WorkingNomads',
       company: cleanHtml(job.company_name || job.company || ''),
@@ -212,10 +230,50 @@ async function parseWorkingNomads(url: string): Promise<ScrapedItem[]> {
       salaryMax: job.salary_max ?? undefined,
       jobType: job.job_type || undefined,
       postedAt: job.pub_date ? new Date(job.pub_date).toISOString() : undefined,
-      tags: (job.tags || job.keywords || []).map((t: string) => t.toLowerCase()).slice(0, 8),
+      tags: toTagArray(job.tags ?? job.keywords).slice(0, 8),
       remote: /remote/i.test(`${title} ${job.location || ''}`) ? true : undefined,
     } as ScrapedItem;
   }).filter((i: ScrapedItem) => i.title && i.url);
+}
+
+// Arbeitnow board: { slug, title, company_name, description, remote, url,
+// tags[], job_types[], location }
+async function parseArbeitNow(url: string, sourceName: string): Promise<ScrapedItem[]> {
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } });
+  if (!res || !res.ok) return [];
+  return parseArbeitNowBoard(await res.json(), sourceName);
+}
+
+// Greenhouse board: { jobs: [{ id, title, updated_at, created_at, location,
+// absolute_url, content, departments[], offices[] }] }
+async function parseGreenhouse(url: string, sourceName: string): Promise<ScrapedItem[]> {
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } }, 1, 25000);
+  if (!res || !res.ok) return [];
+  return parseGreenhouseBoard(await res.json(), sourceName);
+}
+
+// Ashby board: { jobs: [{ id, title, location, employmentType, jobUrl, applyUrl,
+// descriptionHtml, descriptionPlain, publishedAt, updatedAt, tags[] }] }
+async function parseAshby(url: string, sourceName: string): Promise<ScrapedItem[]> {
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } }, 1, 20000);
+  if (!res || !res.ok) return [];
+  return parseAshbyBoard(await res.json(), sourceName);
+}
+
+// Jobicy JSON API: { jobTitle, companyName, jobType[], jobGeo, jobDescription,
+// pubDate, salaryMin/Max/Currency }
+async function parseJobicy(url: string, sourceName: string): Promise<ScrapedItem[]> {
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } });
+  if (!res || !res.ok) return [];
+  return parseJobicyApi(await res.json(), sourceName);
+}
+
+// Himalayas JSON API: { title, companyName, employmentType, locationRestrictions,
+// description, pubDate, expiryDate, minSalary/maxSalary/currency }
+async function parseHimalayas(url: string, sourceName: string): Promise<ScrapedItem[]> {
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': UA } });
+  if (!res || !res.ok) return [];
+  return parseHimalayasApi(await res.json(), sourceName);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,7 +315,10 @@ async function scrapeCareerPage(url: string): Promise<ScrapedItem[]> {
 }
 
 export async function discoverCompanyJobs(companyUrls: string[]): Promise<ScrapedItem[]> {
-  const targetDomains = extractCompanyDomains(companyUrls).slice(0, 20);
+  // The ATS boards above (Greenhouse/Ashby) cover the big companies properly.
+  // This generic pass is only for smaller firms without a public board, so keep
+  // it small enough that it doesn't dominate the pipeline's time budget.
+  const targetDomains = extractCompanyDomains(companyUrls).slice(0, 5);
   if (targetDomains.length === 0) return [];
 
   const allItems: ScrapedItem[] = [];
@@ -265,11 +326,14 @@ export async function discoverCompanyJobs(companyUrls: string[]): Promise<Scrape
   for (const domain of targetDomains) {
     idx++;
     for (const careerUrl of commonCareerUrls(domain)) {
-      await sleep(500);
-      const items = await scrapeCareerPage(careerUrl);
-      allItems.push(...items);
+      await sleep(300);
+      try {
+        const items = await scrapeCareerPage(careerUrl);
+        allItems.push(...items);
+      } catch {
+        // One dead career page (404, timeout) must not abort the whole pass.
+      }
     }
-    if (idx >= 10) break;
   }
 
   return allItems.filter((item, i, arr) => arr.findIndex(x => x.url === item.url) === i).slice(0, 100);
@@ -285,7 +349,7 @@ export async function runScrapePipeline(
   industry: string,
   nicheQuery: string,
   onProgress: (completed: number, total: number, current: string, leadsFound: number) => Promise<void>,
-): Promise<{ leadsCreated: number; leadsPruned: number; sourceResults: { source: string; success: boolean; count: number; error?: string }[] }> {
+): Promise<{ leadsCreated: number; leadsPruned: number; leadsHealed: number; sourceResults: { source: string; success: boolean; count: number; error?: string }[] }> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found');
 
@@ -293,29 +357,71 @@ export async function runScrapePipeline(
   const sourceResults: { source: string; success: boolean; count: number; error?: string }[] = [];
   let completed = 0;
 
+  // Cap per source per scrape run so a single high-volume board can't
+// monopolise the feed. 31 sources x 40 = up to ~1240 fresh leads per run.
+const MAX_JOBS_PER_SOURCE = 40;
+
+let previousHost = '';
   for (const source of SOURCES) {
     try {
-      await sleep(1000);
+      // Be polite to a host we just hit, but don't stall between different
+      // companies — 30 sources at a blanket 1s would blow the pipeline budget.
+      const host = hostOf(source.url);
+      await sleep(host === previousHost ? 1200 : 250);
+      previousHost = host;
       let items: ScrapedItem[] = [];
       if (source.parser === 'remoteok') items = await parseRemoteOk();
       else if (source.parser === 'remotive') items = await parseRemotive(source.url);
       else if (source.parser === 'workingnomads') items = await parseWorkingNomads(source.url);
+      else if (source.parser === 'arbeitnow') items = await parseArbeitNow(source.url, source.name);
+      else if (source.parser === 'greenhouse') items = await parseGreenhouse(source.url, source.name);
+      else if (source.parser === 'ashby') items = await parseAshby(source.url, source.name);
+      else if (source.parser === 'jobicy') items = await parseJobicy(source.url, source.name);
+      else if (source.parser === 'himalayas') items = await parseHimalayas(source.url, source.name);
       else items = await parseRss(source);
 
       items = items.filter(item => !isBlocked(item.title, item.description, blacklist));
       if (nicheQuery) {
         items = items.filter(item => `${item.title} ${item.description}`.toLowerCase().includes(nicheQuery.toLowerCase()));
       }
+      // Cap each source's contribution per run. Without this, one high-volume
+      // board (Arbeitnow returns 300) dominated the feed and every other
+      // company was pushed off the first page.
+      if (items.length > MAX_JOBS_PER_SOURCE) {
+        items = items.slice(0, MAX_JOBS_PER_SOURCE);
+      }
 
       allItems.push(...items);
       completed++;
       sourceResults.push({ source: source.name, success: true, count: items.length });
-      await onProgress(completed, SOURCES.length, source.name, allItems.length);
+      await onProgress(completed, SOURCES.length + 1, source.name, allItems.length);
     } catch (err) {
       completed++;
       sourceResults.push({ source: source.name, success: false, count: 0, error: String(err) });
-      await onProgress(completed, SOURCES.length, source.name, allItems.length);
+      await onProgress(completed, SOURCES.length + 1, source.name, allItems.length);
     }
+  }
+
+  // Direct company career-page discovery. Previously this only ran in the weekly
+  // cron, so a manual "Pull" never touched company /careers pages. Derive the
+  // target domains from jobs we already have for this user, then scrape them.
+  try {
+    const priorLeads = await prisma.lead.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 120,
+      select: { url: true },
+    });
+    const domains = extractCompanyDomains(priorLeads.map(l => l.url));
+    if (domains.length > 0) {
+      const companyUrls = domains.slice(0, 12).map(d => `https://${d}`);
+      const companyItems = await discoverCompanyJobs(companyUrls);
+      allItems.push(...companyItems);
+      sourceResults.push({ source: 'Company Career Pages', success: true, count: companyItems.length });
+      await onProgress(SOURCES.length + 1, SOURCES.length + 1, 'Company Career Pages', allItems.length);
+    }
+  } catch (err) {
+    sourceResults.push({ source: 'Company Career Pages', success: false, count: 0, error: String(err) });
   }
 
   // Cross-source dedupe (canonical URL + normalized title fingerprint)
@@ -332,10 +438,19 @@ export async function runScrapePipeline(
 
   const existingLeads = await prisma.lead.findMany({
     where: { userId },
-    select: { url: true, title: true, source: true },
+    select: { id: true, url: true, title: true, source: true, jobType: true, remote: true, description: true },
   });
   const existingUrls = new Set(existingLeads.map(l => l.url.toLowerCase().trim()));
   const existingFingerprints = new Set(existingLeads.map(l => fingerprint(l.title, l.source)));
+  // Re-scraped postings fill in attributes we were missing before, instead of
+  // being skipped outright. This is how leads scraped before jobType/remote
+  // were captured gradually get repaired.
+  const healByUrl = new Map<string, typeof existingLeads[number]>();
+  const healByFingerprint = new Map<string, typeof existingLeads[number]>();
+  for (const l of existingLeads) {
+    healByUrl.set(l.url.toLowerCase().trim(), l);
+    healByFingerprint.set(fingerprint(l.title, l.source), l);
+  }
 
   const industryKeywords: Record<string, string[]> = {
     'Entry Level': ['entry level', 'junior', 'graduate', 'new grad', 'associate', 'early career', 'no experience', 'beginner'],
@@ -348,10 +463,34 @@ export async function runScrapePipeline(
 
   let leadsCreated = 0;
   const batchData: any[] = [];
+  const healBatch: { id: string; data: Record<string, any> }[] = [];
 
   for (const item of deduped) {
     const fp = fingerprint(item.title, item.source);
     const url = item.url.toLowerCase().trim();
+
+    // Normalise employment type and remote status before they hit the DB.
+    // Boards send "FullTime", "Full Time", "Unbefristeter arbeitsvertrag"… and
+    // most omit remote entirely, which made the dashboard filters useless.
+    const canonicalType = resolveJobType(item.jobType, item.title, item.description);
+    const canonicalRemote = item.remote ?? resolveRemote(item.title, item.location, item.description);
+
+    // Heal: we already have this posting, but it's missing attributes (or has
+    // a stub description) from an older scrape. Repair it in place.
+    const existing = healByUrl.get(url) || healByFingerprint.get(fp);
+    if (existing) {
+      const data: Record<string, any> = {};
+      if (!existing.jobType && canonicalType) data.jobType = canonicalType;
+      if (existing.remote === null && canonicalRemote !== null && canonicalRemote !== undefined) data.remote = canonicalRemote;
+      if ((existing.description || '').length < 300 && (item.description || '').length > (existing.description || '').length) {
+        data.description = item.description;
+      }
+      if (Object.keys(data).length > 0) healBatch.push({ id: existing.id, data });
+      existingUrls.add(url);
+      existingFingerprints.add(fp);
+      continue;
+    }
+
     if (existingUrls.has(url) || existingFingerprints.has(fp)) continue;
     existingUrls.add(url);
     existingFingerprints.add(fp);
@@ -374,8 +513,8 @@ export async function runScrapePipeline(
       salaryMax: item.salaryMax ?? null,
       salaryCurrency: item.salaryCurrency || 'USD',
       location: item.location || null,
-      jobType: item.jobType || null,
-      remote: item.remote ?? null,
+      jobType: canonicalType,
+      remote: canonicalRemote,
       timezone: item.timezone || null,
       postedAt: item.postedAt ? new Date(item.postedAt) : new Date(),
       tags: item.tags || [],
@@ -392,6 +531,18 @@ export async function runScrapePipeline(
     await prisma.lead.createMany({ data: batchData, skipDuplicates: true });
   }
 
+  // Apply repairs to leads we already had. Chunked so one big scrape doesn't
+  // build a single enormous transaction.
+  if (healBatch.length > 0) {
+    const CHUNK = 100;
+    for (let i = 0; i < healBatch.length; i += CHUNK) {
+      const chunk = healBatch.slice(i, i + CHUNK);
+      await prisma.$transaction(
+        chunk.map(h => prisma.lead.update({ where: { id: h.id }, data: h.data }))
+      );
+    }
+  }
+
   // NOTE: auto-prune of low-score leads has been REMOVED (was silently deleting
   // user data on every scrape). Deletion is now explicit-only via the trash bin.
 
@@ -405,5 +556,5 @@ export async function runScrapePipeline(
     })),
   });
 
-  return { leadsCreated, leadsPruned: 0, sourceResults };
+  return { leadsCreated, leadsPruned: 0, leadsHealed: healBatch.length, sourceResults };
 }

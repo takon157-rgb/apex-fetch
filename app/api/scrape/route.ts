@@ -5,6 +5,7 @@ import { runScrapePipeline, SOURCES, cleanHtml } from '@/lib/scraper';
 import { sendJobDiscordAlert } from '@/lib/discord';
 import { rateLimitByUser } from '@/lib/rate-limit';
 import { assertString } from '@/lib/validate';
+import { cleanupStaleLeads } from '@/lib/maintenance';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -70,8 +71,12 @@ export async function POST(req: NextRequest) {
       data: { creditsRemaining: user.isSubscribed ? undefined : { decrement: SCRAPE_COST } },
     });
 
+    // +1 for the company career-page discovery pass that runs after the
+    // registered sources — without it the progress bar never reaches 100%.
+    const TOTAL_SOURCES = SOURCES.length + 1;
+
     const session = await prisma.scrapeSession.create({
-      data: { userId: user.id, totalSources: SOURCES.length, status: 'running' },
+      data: { userId: user.id, totalSources: TOTAL_SOURCES, status: 'running' },
     });
 
     const preferences = await prisma.userPreference.findUnique({ where: { userId: user.id } });
@@ -109,9 +114,12 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Keep the feed fresh: soft-delete stale, untracked leads (recoverable in Trash).
+        const stale = await cleanupStaleLeads(45);
+
         await prisma.scrapeSession.update({
           where: { id: session.id },
-          data: { status: 'completed', completedSources: SOURCES.length, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned, completedAt: new Date() },
+          data: { status: 'completed', completedSources: TOTAL_SOURCES, leadsFound: result.leadsCreated, leadsPruned: result.leadsPruned + stale.removed, completedAt: new Date() },
         });
       })
       .catch(async (err) => {
