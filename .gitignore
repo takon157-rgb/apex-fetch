@@ -32,3 +32,4 @@ devserver.log
 
 # Supabase CLI local config
 supabase/
+.vercel
