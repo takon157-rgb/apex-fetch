@@ -8,7 +8,7 @@ import CheckoutButton from '../components/CheckoutButton';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Pricing | JobPilot',
+  title: 'Pricing',
   description:
     'Start free with 10 job-search credits. Upgrade to Pro for 100 credits a month and unlimited scrapes.',
 };
@@ -69,7 +69,7 @@ export default async function PricingPage() {
           {/* Free */}
           <section className="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/50 p-6">
             <h2 className="text-lg font-bold text-white">Free</h2>
-            <p className="mt-1 text-sm text-slate-400">Everything you need to try JobPilot.</p>
+            <p className="mt-1 text-sm text-slate-400">Everything you need to try ApexFetch.</p>
             <p className="mt-5 text-4xl font-extrabold text-white">
               $0
               <span className="text-sm font-medium text-slate-500"> forever</span>

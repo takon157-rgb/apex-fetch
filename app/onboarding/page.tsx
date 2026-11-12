@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
-import { REFERRAL_STORAGE_KEY } from '@/lib/brand'
+import { REFERRAL_STORAGE_KEY, BRAND } from '@/lib/brand'
 
 const PREDEFINED_ROLES = [
   'AI Automation',
@@ -214,11 +214,11 @@ export default function OnboardingPage() {
       <div className="w-full max-w-2xl">
         <div className="mb-8 text-center">
           <div className="inline-flex h-12 w-12 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-xl items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/20 mb-3">
-            AF
+            {BRAND.mark}
           </div>
           <h1 className="text-2xl font-bold text-white">Set Up Your Profile</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Help us tailor your job feed to your unique skills
+            Help {BRAND.name} tailor your job feed to your unique skills
           </p>
         </div>
 

@@ -140,7 +140,7 @@ export default function SignUpPage() {
             }}
           />
           <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-500">
-            By creating an account you agree to JobPilot sending applications on your behalf
+            By creating an account you agree to ApexFetch sending applications on your behalf
             <strong className="font-semibold text-slate-400"> only after you approve them</strong>.
           </p>
         </div>

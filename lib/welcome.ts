@@ -6,13 +6,22 @@
  * of being duplicated across components.
  */
 
-export const WELCOME_DISMISSED_KEY = 'jobpilot_welcome_dismissed_v1';
+export const WELCOME_DISMISSED_KEY = 'apexfetch_welcome_dismissed_v1';
+
+/**
+ * The key the flag was stored under before the rename. It is still honoured so
+ * a returning user is not shown the welcome modal a second time.
+ */
+const LEGACY_WELCOME_DISMISSED_KEY = 'jobpilot_welcome_dismissed_v1';
 
 export function welcomeDismissed(): boolean {
   // localStorage is unavailable during SSR and throws in some privacy modes.
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(WELCOME_DISMISSED_KEY) === '1';
+    return (
+      window.localStorage.getItem(WELCOME_DISMISSED_KEY) === '1' ||
+      window.localStorage.getItem(LEGACY_WELCOME_DISMISSED_KEY) === '1'
+    );
   } catch {
     return false;
   }

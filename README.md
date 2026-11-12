@@ -1,8 +1,8 @@
-# 🚀 JobPilot
+# 🚀 ApexFetch
 
 > Finds real job openings, ranks them against your resume, tailors an application for every good match, and sends nothing without your approval.
 
-JobPilot is a job-search automation platform. It ingests live postings from **34 sources** — company career boards plus remote/freelance job boards — ranks them against your resume, drafts tailored applications, and holds every outbound email in an approval queue for a human to release.
+ApexFetch is a job-search automation platform. It ingests live postings from **34 sources** — company career boards plus remote/freelance job boards — ranks them against your resume, drafts tailored applications, and holds every outbound email in an approval queue for a human to release.
 
 ---
 
@@ -196,7 +196,7 @@ response says `"done": true`:
 The daily job refreshes every account that could pull jobs for itself
 (subscribed **or** still holding credits). Restricting it to paid accounts
 turned the schedule into a no-op, and a stale feed is the opposite of what
-JobPilot promises. Set `CRON_INCLUDE_FREE_USERS=false` to restrict it to
+ApexFetch promises. Set `CRON_INCLUDE_FREE_USERS=false` to restrict it to
 paid accounts.
 
 `scripts/verify-cron-scrape.mjs` drives the cron endpoint the same way the

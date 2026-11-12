@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
         title: '✅ ApexFetch Webhook Test',
         description: 'Your Discord webhook is configured correctly! You will receive high-scoring lead alerts here.',
         color: 5763719,
-        footer: { text: 'ApexFetch Engine • Connection Test' },
+        footer: { text: 'ApexFetch • Connection Test' },
         timestamp: new Date().toISOString(),
       }],
     };

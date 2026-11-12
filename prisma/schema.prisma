@@ -83,7 +83,7 @@ model Lead {
   deleted       Boolean  @default(false)
   createdAt     DateTime @default(now())
 
-  // --- JobPilot application lifecycle ---
+  // --- ApexFetch application lifecycle ---
   fitScore         Int?
   fitMatched       String[] @default([])
   fitMissing       String[] @default([])

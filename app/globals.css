@@ -177,3 +177,203 @@ html.light body {
 .hover-scale:hover {
   transform: scale(1.02);
 }
+
+/* ========== LANDING PAGE / CINEMATIC MOTION ========== */
+
+/* Slow-drifting aurora blobs behind the hero. */
+@keyframes aurora {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.55; }
+  33%      { transform: translate3d(4%, -6%, 0) scale(1.12); opacity: 0.75; }
+  66%      { transform: translate3d(-5%, 4%, 0) scale(0.94); opacity: 0.45; }
+}
+
+@keyframes aurora-reverse {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); opacity: 0.4; }
+  50%      { transform: translate3d(-6%, 7%, 0) scale(0.9); opacity: 0.7; }
+}
+
+/* Gradient text that shifts hue. */
+@keyframes gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* Seamless horizontal ticker for live job titles. */
+@keyframes marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* Reveal-on-scroll. Transform + opacity only, so it stays on the GPU. */
+@keyframes reveal-up {
+  from { opacity: 0; transform: translate3d(0, 28px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes reveal-left {
+  from { opacity: 0; transform: translate3d(-32px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes reveal-right {
+  from { opacity: 0; transform: translate3d(32px, 0, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* A slow sweep of light across a border. */
+@keyframes border-spin {
+  from { --angle: 0deg; }
+  to   { --angle: 360deg; }
+}
+
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.animate-aurora {
+  animation: aurora 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-aurora-reverse {
+  animation: aurora-reverse 22s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-gradient-pan {
+  background-size: 200% auto;
+  animation: gradient-pan 6s ease-in-out infinite;
+}
+
+/* The ticker track holds two identical halves; translating by -50% loops it. */
+.animate-marquee {
+  animation: marquee 44s linear infinite;
+  will-change: transform;
+}
+
+.marquee-host:hover .animate-marquee {
+  animation-play-state: paused;
+}
+
+.reveal {
+  opacity: 0;
+}
+
+.reveal.is-visible {
+  animation: reveal-up 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.reveal-left.is-visible {
+  animation-name: reveal-left;
+}
+
+.reveal-right.is-visible {
+  animation-name: reveal-right;
+}
+
+/* Gradient hairline border that rotates. */
+.rotating-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.rotating-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--angle),
+    transparent 0deg,
+    rgba(99, 102, 241, 0.9) 70deg,
+    rgba(168, 85, 247, 0.9) 140deg,
+    transparent 220deg
+  );
+  animation: border-spin 6s linear infinite;
+  opacity: 0.55;
+}
+
+/* Sticky hero visual that drifts as you scroll. */
+.parallax-layer {
+  will-change: transform;
+  transition: transform 0.15s linear;
+}
+
+/* A card that lifts on hover with a soft glow. */
+.lift-card {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.35s ease,
+              box-shadow 0.35s ease;
+}
+
+.lift-card:hover {
+  transform: translate3d(0, -6px, 0);
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 24px 60px -20px rgba(79, 70, 229, 0.45);
+}
+
+/* Text gradient used on hero words. */
+.text-gradient {
+  background-image: linear-gradient(
+    100deg,
+    #818cf8 0%,
+    #c084fc 35%,
+    #38bdf8 65%,
+    #818cf8 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* Numeric counters that ease toward their target. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hairline separators that catch the light. */
+.hairline {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(99, 102, 241, 0.5),
+    rgba(168, 85, 247, 0.5),
+    transparent
+  );
+}
+
+/*
+ * Reduced motion.
+ *
+ * The landing page leans on scroll reveals and drifting blobs. For anyone who
+ * asks the OS to calm things down, every one of those effects is switched off
+ * and the content is shown immediately rather than left invisible.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .reveal {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .animate-marquee {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .parallax-layer {
+    transform: none !important;
+  }
+}

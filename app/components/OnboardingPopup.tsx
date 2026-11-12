@@ -11,7 +11,7 @@ import { BRAND, OPEN_WELCOME_EVENT } from '@/lib/brand';
  *
  * Previously this component only redirected new users to /onboarding and
  * rendered nothing, so a brand-new account got no explanation of what
- * JobPilot does or how to get value from it. It now shows a short, dismissible
+ * ApexFetch does or how to get value from it. It now shows a short, dismissible
  * welcome with the three things a new user actually needs: set up a profile,
  * browse the live feed, and review matches awaiting approval.
  *
@@ -22,7 +22,7 @@ import { BRAND, OPEN_WELCOME_EVENT } from '@/lib/brand';
 const STEPS = [
   {
     title: 'Add your resume',
-    body: 'Upload a PDF and JobPilot extracts your roles and skills to rank every lead against.',
+    body: 'Upload a PDF and ApexFetch extracts your roles and skills to rank every lead against.',
     href: '/onboarding',
     icon: '📄',
   },
@@ -172,8 +172,8 @@ export default function OnboardingPopup() {
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="jobpilot-welcome-title"
-        aria-describedby="jobpilot-welcome-desc"
+        aria-labelledby="apexfetch-welcome-title"
+        aria-describedby="apexfetch-welcome-desc"
         className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-800 bg-slate-900 shadow-2xl shadow-indigo-950/40"
       >
         <div
@@ -196,10 +196,10 @@ export default function OnboardingPopup() {
             <span aria-hidden="true">👋</span> Welcome to {BRAND.name}
           </div>
 
-          <h2 id="jobpilot-welcome-title" className="mt-4 text-2xl font-bold tracking-tight text-white">
+          <h2 id="apexfetch-welcome-title" className="mt-4 text-2xl font-bold tracking-tight text-white">
             Your job search, on autopilot
           </h2>
-          <p id="jobpilot-welcome-desc" className="mt-2 text-sm leading-relaxed text-slate-400">
+          <p id="apexfetch-welcome-desc" className="mt-2 text-sm leading-relaxed text-slate-400">
             {BRAND.name} finds real openings across company career boards and remote job boards,
             ranks them against your resume, and drafts an application for every good match.
             You stay in control — nothing is sent without your approval.

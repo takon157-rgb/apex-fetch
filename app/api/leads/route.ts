@@ -188,13 +188,15 @@ export async function GET(req: NextRequest) {
     // company isn't buried under a thousand aggregator postings. The quota is
     // fixed so the ranking is identical on every page.
     const take = Math.min(PER_GROUP_FIT, Math.max(1, Math.floor(MAX_WINDOW / Math.max(1, groups.length))));
-    const candidateLists = await mapWithConcurrency(
+    // Order by discovery time (createdAt) so newly found jobs surface first.
+        // Secondary sort by postedAt keeps same-second discoveries in a stable order.
+        const candidateLists = await mapWithConcurrency(
       groups,
       DB_QUERY_CONCURRENCY,
       ([, members]) =>
         prisma.lead.findMany({
           where: { ...where, source: { in: members } },
-          orderBy: [{ postedAt: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
+          orderBy: [{ createdAt: 'desc' }, { postedAt: 'desc' }, { id: 'asc' }],
           take,
         }),
     );
@@ -219,17 +221,17 @@ export async function GET(req: NextRequest) {
       fitReason: lead.fitReason || fit.reason,
     }));
   } else {
-    // Recent feed: one lightweight query (ids and sources only) builds the
-    // whole candidate list, which is interleaved by board to keep every source
-    // represented. Only the rows on this page are then fetched in full.
+    // Recent feed: discovered first (createdAt DESC), then postedAt for same-second ties.
+    // This ensures a newly-scraped job appears at the top even if its postedAt is old.
+    // The source interleaving keeps diversity; the client-side sort preserves this order
+    // unless the user changes the sortBy filter.
     //
-    // The candidate list is identical for every page, so scrolling can't
-    // repeat or skip a job. The `id` tiebreaker makes the ordering total —
-    // without it, rows with the same timestamp could come back in a different
-    // order between requests.
+    // The candidate list is identical for every page, so scrolling can't repeat or skip
+    // a job. The `id` tiebreaker makes the ordering total — without it, rows with the
+    // same second-level timestamp could come back in a different order between requests.
     const candidates = await prisma.lead.findMany({
       where,
-      orderBy: [{ postedAt: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ createdAt: 'desc' }, { postedAt: 'desc' }, { id: 'asc' }],
       take: MAX_WINDOW,
       select: { id: true, source: true },
     });
