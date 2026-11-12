@@ -2,12 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton, useUser } from '@clerk/nextjs';
 import { BRAND, openWelcome } from '@/lib/brand';
 
 export default function Header() {
   const [open, setOpen] = useState(false);
   const { user, isLoaded } = useUser();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (isLoaded && user) {
@@ -19,6 +21,11 @@ export default function Header() {
     isLoaded &&
     user?.id === process.env.NEXT_PUBLIC_ADMIN_CLERK_ID;
 
+  // The auth walls carry their own sign-in / sign-up call to action, so the
+  // nav and the duplicate buttons are hidden there.
+  const isAuthPage =
+    pathname.startsWith('/sign-in') || pathname.startsWith('/sign-up');
+
   return (
     <header className="bg-slate-950/80 border-b border-slate-800 backdrop-blur sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -26,7 +33,7 @@ export default function Header() {
           <button
             aria-label="menu"
             onClick={() => setOpen(!open)}
-            className="md:hidden p-2 rounded-lg bg-slate-900 hover:bg-slate-800"
+            className={`md:hidden p-2 rounded-lg bg-slate-900 hover:bg-slate-800 ${isAuthPage ? 'hidden' : ''}`}
           >
             <svg className="w-5 h-5 text-slate-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -41,44 +48,52 @@ export default function Header() {
         </div>
 
         <nav className="hidden md:flex items-center gap-4">
-          <Link href="/" className="text-sm text-slate-300 hover:text-white">
-            Live Feed
-          </Link>
-          <Link href="/approval-queue" className="text-sm text-amber-300 hover:text-amber-200">
-            Approval Queue
-          </Link>
-          <Link href="/tracker" className="text-sm text-emerald-300 hover:text-emerald-200">
-            Tracker
-          </Link>
-          <Link href="/local-leads" className="text-sm text-indigo-300 hover:underline">
-            Local Leads
-          </Link>
-          <Link href="/stored-leads" className="text-sm text-slate-300 hover:text-white">
-            Stored Leads
-          </Link>
-          <Link href="/profile" className="text-sm text-slate-300 hover:text-white">
-            Profile
-          </Link>
-          <Link href="/pricing" className="text-sm text-slate-300 hover:text-white">
-            Pricing
-          </Link>
-          {isAdmin && (
-            <Link href="/admin" className="text-sm text-amber-400 hover:text-amber-300 font-semibold">
-              Admin
-            </Link>
+          {!isAuthPage && (
+            <>
+              <Link href="/" className="text-sm text-slate-300 hover:text-white">
+                Live Feed
+              </Link>
+              <Link href="/approval-queue" className="text-sm text-amber-300 hover:text-amber-200">
+                Approval Queue
+              </Link>
+              <Link href="/tracker" className="text-sm text-emerald-300 hover:text-emerald-200">
+                Tracker
+              </Link>
+              <Link href="/local-leads" className="text-sm text-indigo-300 hover:underline">
+                Local Leads
+              </Link>
+              <Link href="/stored-leads" className="text-sm text-slate-300 hover:text-white">
+                Stored Leads
+              </Link>
+              <Link href="/profile" className="text-sm text-slate-300 hover:text-white">
+                Profile
+              </Link>
+              <Link href="/pricing" className="text-sm text-slate-300 hover:text-white">
+                Pricing
+              </Link>
+              {isAdmin && (
+                <Link href="/admin" className="text-sm text-amber-400 hover:text-amber-300 font-semibold">
+                  Admin
+                </Link>
+              )}
+            </>
           )}
           <div className="ml-2 flex items-center gap-2">
             <SignedOut>
-              <SignInButton mode="modal">
-                <button className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors">
-                  Sign in
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button className="text-sm text-white px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors">
-                  Sign up
-                </button>
-              </SignUpButton>
+              {!isAuthPage && (
+                <>
+                  <SignInButton mode="modal">
+                    <button className="text-sm text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors">
+                      Sign in
+                    </button>
+                  </SignInButton>
+                  <SignUpButton mode="modal">
+                    <button className="text-sm text-white px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition-colors">
+                      Sign up
+                    </button>
+                  </SignUpButton>
+                </>
+              )}
             </SignedOut>
             <SignedIn>
               <button
@@ -109,7 +124,7 @@ export default function Header() {
         </nav>
       </div>
 
-      {open && (
+      {open && !isAuthPage && (
         <div className="md:hidden bg-slate-900/90 border-t border-slate-800">
           <div className="px-4 py-3 space-y-2">
             <Link href="/" className="block text-slate-200" onClick={() => setOpen(false)}>

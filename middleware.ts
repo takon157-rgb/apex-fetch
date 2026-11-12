@@ -6,6 +6,8 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/onboarding(.*)',
   '/jobs(.*)',
+  // Pricing is public - people check the price before creating an account.
+  '/pricing(.*)',
   '/api/public/(.*)',
   '/api/webhooks/(.*)',
   '/api/cron/(.*)',

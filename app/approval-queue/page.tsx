@@ -153,6 +153,9 @@ export default async function ApprovalQueuePage() {
                       leadId={lead.id}
                       status={lead.applicationStatus}
                       hasCoverEmail={!!cover}
+                      coverEmail={cover}
+                      jobTitle={lead.title}
+                      company={lead.company || undefined}
                     />
                   </div>
                 </article>

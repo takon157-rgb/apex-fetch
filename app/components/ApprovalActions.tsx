@@ -7,9 +7,20 @@ interface Props {
   leadId: string;
   status: string;
   hasCoverEmail: boolean;
+  /** The drafted cover email, so it can be handed off to a mail app. */
+  coverEmail?: string;
+  jobTitle?: string;
+  company?: string;
 }
 
-export default function ApprovalActions({ leadId, status, hasCoverEmail }: Props) {
+export default function ApprovalActions({
+  leadId,
+  status,
+  hasCoverEmail,
+  coverEmail,
+  jobTitle,
+  company,
+}: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -39,6 +50,20 @@ export default function ApprovalActions({ leadId, status, hasCoverEmail }: Props
   }
 
   const isApproved = status === 'approved';
+
+  /**
+   * Hands the drafted email to the visitor's own mail client.
+   *
+   * Sending through the server needs working SMTP credentials. When they are
+   * missing (or the user simply prefers their own mailbox) this opens a
+   * pre-filled draft instead, so the application still leaves their hands.
+   */
+  const openInMailApp = () => {
+    const subject = `Application${jobTitle ? ` - ${jobTitle}` : ''}${company ? ` at ${company}` : ''}`;
+    const body = coverEmail || '';
+    const href = `mailto:${email.trim() || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = href;
+  };
 
   return (
     <div className="mt-4 space-y-3">
@@ -95,6 +120,14 @@ export default function ApprovalActions({ leadId, status, hasCoverEmail }: Props
               className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold transition focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:outline-none"
             >
               {busy === 'send' ? 'Sending…' : 'Send'}
+            </button>
+            <button
+              onClick={openInMailApp}
+              disabled={!hasCoverEmail}
+              title="Open the drafted email in your own mail app and attach the exported resume"
+              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-sm font-bold border border-slate-700 transition focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+            >
+              Open in mail app
             </button>
             <button
               onClick={() => setShowEmail(false)}
