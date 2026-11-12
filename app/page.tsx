@@ -8,6 +8,9 @@ import CountUpClient from './components/landing/CountUp';
 export const metadata = {
   title: BRAND.name,
   description: BRAND.seo,
+  verification: {
+    google: 'eOk7S3ijOCkPAbcshH0cIiw9_bkH2dApxIwWTrpFdNY',
+  },
 };
 
 const FEATURES = [
