@@ -38,6 +38,7 @@ const SOURCES_PER_BATCH = numEnv('SCRAPE_BATCH_SIZE', 4);
 const SOURCE_TIMEOUT_MS = numEnv('SCRAPE_SOURCE_TIMEOUT_MS', 6000);
 const SOURCE_RETRIES = numEnv('SCRAPE_SOURCE_RETRIES', 1);
 const BATCH_TIME_BUDGET_MS = numEnv('SCRAPE_BATCH_BUDGET_MS', 35000);
+const DISCOVERY_TIME_BUDGET_MS = numEnv('SCRAPE_DISCOVERY_BUDGET_MS', 20000);
 
 /** Total units of work: one per registered source plus the career-page pass. */
 const TOTAL_UNITS = SOURCES.length + 1;
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest) {
           selectedIndustry,
           nicheQuery,
           onProgress,
-          { sourceOffset: SOURCES.length, discovery: true },
+          { sourceOffset: SOURCES.length, discovery: true, discoveryTimeBudgetMs: DISCOVERY_TIME_BUDGET_MS },
         );
 
         await prisma.scrapeSession.update({

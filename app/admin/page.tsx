@@ -51,19 +51,20 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const toggleSubscription = async (userId: string, current: boolean) => {
+  /** Set an account's plan explicitly - no "toggle" to invert by mistake. */
+  const setSubscription = async (userId: string, isSubscribed: boolean) => {
     setTogglingId(userId);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, isSubscribed: !current }),
+        body: JSON.stringify({ userId, isSubscribed }),
       });
       const data = await res.json();
       if (data.success) {
-        setStats(prev => prev ? { ...prev, users: prev.users.map(u => u.id === userId ? { ...u, isSubscribed: !current } : u) } : prev);
+        setStats(prev => prev ? { ...prev, users: prev.users.map(u => u.id === userId ? { ...u, isSubscribed } : u) } : prev);
       }
-    } catch (err) { console.error('Failed to toggle subscription', err); }
+    } catch (err) { console.error('Failed to set subscription', err); }
     setTogglingId(null);
   };
 
@@ -168,14 +169,14 @@ export default function AdminPage() {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => toggleSubscription(u.id, true)}
+                          onClick={() => setSubscription(u.id, true)}
                           disabled={togglingId === u.id || u.isSubscribed}
                           className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${u.isSubscribed ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'}`}
                         >
                           Upgrade
                         </button>
                         <button
-                          onClick={() => toggleSubscription(u.id, false)}
+                          onClick={() => setSubscription(u.id, false)}
                           disabled={togglingId === u.id || !u.isSubscribed}
                           className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${!u.isSubscribed ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30'}`}
                         >

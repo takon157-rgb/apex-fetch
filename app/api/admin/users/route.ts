@@ -28,7 +28,8 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
 
-    const totalScrapes = users.reduce((sum, u) => sum + u._count.leads, 0);
+    // Matches the per-user "Leads" column, which counts both tables.
+    const totalScrapes = users.reduce((sum, u) => sum + u._count.leads + u._count.localLeads, 0);
 
     return NextResponse.json({
       success: true,

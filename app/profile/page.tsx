@@ -34,6 +34,7 @@ export default function ProfilePage() {
   const [targetUrls, setTargetUrls] = useState<string[]>([]);
   const [newTargetUrl, setNewTargetUrl] = useState('');
   const [savingTargets, setSavingTargets] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
   const [savingDiscord, setSavingDiscord] = useState(false);
@@ -150,26 +151,52 @@ export default function ProfilePage() {
     setNewTargetUrl('');
     setSavingTargets(true);
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetUrls: updated }),
       });
-    } catch {}
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.targetUrls) {
+        // Put the row back the way it was rather than showing a target that
+        // was never actually saved.
+        setTargetUrls(targetUrls);
+        setTargetError(data.error || 'Could not save that URL.');
+        return;
+      }
+      // The server filters anything that is not a public http(s) URL.
+      setTargetUrls(data.targetUrls);
+      setTargetError(null);
+    } catch {
+      setTargetUrls(targetUrls);
+      setTargetError('Network error saving target URL.');
+    }
     setSavingTargets(false);
   };
 
   const removeTargetUrl = async (url: string) => {
+    const previous = targetUrls;
     const updated = targetUrls.filter(u => u !== url);
     setTargetUrls(updated);
     setSavingTargets(true);
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetUrls: updated }),
       });
-    } catch {}
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.targetUrls) {
+        setTargetUrls(previous);
+        setTargetError(data.error || 'Could not remove that URL.');
+        return;
+      }
+      setTargetUrls(data.targetUrls);
+      setTargetError(null);
+    } catch {
+      setTargetUrls(previous);
+      setTargetError('Network error removing target URL.');
+    }
     setSavingTargets(false);
   };
 
@@ -427,8 +454,11 @@ export default function ProfilePage() {
           )}
 
           <p className="mt-4 text-xs text-slate-500">
-            These URLs are used when you click "Pull Live Leads" — the Playwright worker will visit each page and extract job listings.
+            These pages are scraped for you on the company-career-page pass of every pull, and they take priority over pages we infer automatically. Only public http(s) URLs are accepted.
           </p>
+          {targetError && (
+            <p className="mt-2 text-xs text-rose-400">{targetError}</p>
+          )}
         </div>
 
         {/* AI Resume Refinement Engine */}

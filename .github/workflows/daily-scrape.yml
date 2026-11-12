@@ -8,9 +8,28 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Trigger daily scrape cron
+        # The endpoint performs one bounded slice per call and answers
+        # {"done": true} when every subscribed account has been processed.
+        # A single call used to run the whole pipeline, which the platform
+        # killed partway through.
         run: |
-          curl -s -X GET "${{ secrets.APP_URL }}/api/cron/scrape" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -w "\nHTTP %{http_code}"
+          set -euo pipefail
+          for i in $(seq 1 120); do
+            RESP=$(curl -s -X GET "${{ secrets.APP_URL }}/api/cron/scrape" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              -w "\nHTTP %{http_code}")
+            echo "$RESP"
+            if echo "$RESP" | grep -q '"done"[[:space:]]*:[[:space:]]*true'; then
+              echo "Daily scrape complete."
+              exit 0
+            fi
+            if echo "$RESP" | grep -q 'HTTP 5'; then
+              echo "Server error, retrying."
+            fi
+            sleep 2
+          done
+          echo "Reached the iteration limit before the scrape finished."
+          exit 1

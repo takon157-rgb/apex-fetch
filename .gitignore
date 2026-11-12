@@ -29,6 +29,7 @@ tsconfig.tsbuildinfo
 
 # Local dev server log
 devserver.log
+devserver.err.log
 
 # Supabase CLI local config
 supabase/

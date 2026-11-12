@@ -47,6 +47,8 @@ model UserPreference {
   coreSkills          String[]
   parsedResumeSummary String?  @db.Text
   setupComplete       Boolean  @default(false)
+  /// Career pages and job boards this account wants scraped directly.
+  targetUrls          String[] @default([])
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

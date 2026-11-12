@@ -303,7 +303,9 @@ function commonCareerUrls(domain: string): string[] {
 }
 
 async function scrapeCareerPage(url: string): Promise<ScrapedItem[]> {
-  const res = await fetchWithRetry(url, { headers: { 'User-Agent': `${UA} CareerScraper` } }, 1, 12000);
+  // Uses the configured timeout/retries so one unresponsive career page cannot
+  // eat a whole serverless invocation's budget.
+  const res = await fetchWithRetry(url, { headers: { 'User-Agent': `${UA} CareerScraper` } });
   if (!res || !res.ok) return [];
   const html = await res.text();
   const $ = cheerio.load(html);
@@ -331,18 +333,63 @@ async function scrapeCareerPage(url: string): Promise<ScrapedItem[]> {
   return items.filter((item, i, arr) => arr.findIndex(x => x.url === item.url) === i).slice(0, 20);
 }
 
-export async function discoverCompanyJobs(companyUrls: string[]): Promise<ScrapedItem[]> {
+export interface CompanyDiscoveryOptions {
+  /** Maximum number of company domains to visit in one pass. */
+  maxDomains?: number;
+  /** Stop trying more career pages once this many milliseconds have elapsed. */
+  timeBudgetMs?: number;
+}
+
+export async function discoverCompanyJobs(
+  companyUrls: string[],
+  opts: CompanyDiscoveryOptions = {},
+): Promise<ScrapedItem[]> {
   // The ATS boards above (Greenhouse/Ashby) cover the big companies properly.
   // This generic pass is only for smaller firms without a public board, so keep
   // it small enough that it doesn't dominate the pipeline's time budget.
-  const targetDomains = extractCompanyDomains(companyUrls).slice(0, 5);
+  const maxDomains = opts.maxDomains ?? 5;
+
+  // Keep the exact URLs we were given. A saved target such as
+  // "https://acme.com/jobs/open" points at a real page, and reducing it to
+  // just the hostname would throw that away.
+  const explicit = companyUrls
+    .filter((u) => {
+      try {
+        const parsed = new URL(u);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    })
+    .map((u) => {
+      try {
+        return { url: u, domain: new URL(u).hostname.replace(/^www\./, '') };
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is { url: string; domain: string } => x !== null);
+
+  const targetDomains = extractCompanyDomains(companyUrls).slice(0, maxDomains);
   if (targetDomains.length === 0) return [];
 
+  const deadline = opts.timeBudgetMs ? Date.now() + opts.timeBudgetMs : Infinity;
+
   const allItems: ScrapedItem[] = [];
-  let idx = 0;
   for (const domain of targetDomains) {
-    idx++;
-    for (const careerUrl of commonCareerUrls(domain)) {
+    // The page the user named first, then the usual guesses for that host.
+    const candidates = [
+      ...explicit.filter((e) => e.domain === domain).map((e) => e.url),
+      ...commonCareerUrls(domain),
+    ];
+    const seen = new Set<string>();
+    for (const careerUrl of candidates) {
+      if (seen.has(careerUrl)) continue;
+      seen.add(careerUrl);
+      if (Date.now() >= deadline) {
+        // Out of time - keep what we already have rather than being killed.
+        return allItems.filter((item, i, arr) => arr.findIndex(x => x.url === item.url) === i).slice(0, 100);
+      }
       await sleep(300);
       try {
         const items = await scrapeCareerPage(careerUrl);
@@ -376,6 +423,8 @@ export interface ScrapeBatchOptions {
   discovery?: boolean;
   /** Stop early once this many milliseconds have elapsed. */
   timeBudgetMs?: number;
+  /** Separate budget for the career-page discovery pass. */
+  discoveryTimeBudgetMs?: number;
 }
 
 export interface ScrapePipelineResult {
@@ -482,9 +531,32 @@ export async function runScrapePipeline(
         select: { url: true },
       });
       const domains = extractCompanyDomains(priorLeads.map(l => l.url));
-      if (domains.length > 0) {
-        const companyUrls = domains.slice(0, 12).map(d => `https://${d}`);
-        const companyItems = await discoverCompanyJobs(companyUrls);
+
+      // Career pages this account explicitly asked for take priority over the
+      // ones inferred from previous postings.
+      const prefs = await prisma.userPreference.findUnique({
+        where: { userId },
+        select: { targetUrls: true },
+      });
+      const savedTargets = (prefs?.targetUrls ?? []).filter((u) => {
+        try {
+          const parsed = new URL(u);
+          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      });
+
+      const companyUrls = [
+        ...savedTargets,
+        ...domains.slice(0, 12).map(d => `https://${d}`),
+      ].filter((u, i, arr) => arr.indexOf(u) === i);
+
+      if (companyUrls.length > 0) {
+        const companyItems = await discoverCompanyJobs(companyUrls, {
+          maxDomains: 5,
+          timeBudgetMs: options.discoveryTimeBudgetMs ?? 20000,
+        });
         allItems.push(...companyItems);
         sourceResults.push({ source: 'Company Career Pages', success: true, count: companyItems.length });
         await onProgress(totalSources + 1, totalSources + 1, 'Company Career Pages', allItems.length);

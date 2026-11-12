@@ -36,7 +36,7 @@ Stripe, OpenAI, Anthropic-adjacent boards, Vanta, Sentry, Linear, Notion, Perple
 
 **Aggregators (13)** — RemoteOK, Remotive, WeWorkRemotely, Himalayas (×2 pages), WorkingNomads, AuthenticJobs, Jobicy (main + part-time + contract + internship feeds), LandingJobs, Arbeitnow.
 
-Plus a **company career-page discovery** pass that resolves domains from previously seen postings and scrapes their boards directly.
+Plus a **company career-page discovery** pass that resolves domains from previously seen postings and scrapes their boards directly. You can also add your own career pages under **Profile → Target Sites**; those are stored per account and take priority over the ones inferred automatically.
 
 Every source is health-checked on each run; failures are reported per source rather than silently dropping the run.
 
@@ -97,6 +97,14 @@ npm install
 | `ADMIN_CLERK_ID` | Clerk user id granted admin access |
 | `NEXT_PUBLIC_ADMIN_CLERK_ID` | Same id, for client-side checks |
 | `CRON_SECRET` | Secret header for cron endpoints |
+| `CRON_INCLUDE_FREE_USERS` | `false` restricts the daily scrape to paid accounts (default `true`) |
+| `SCRAPE_BATCH_SIZE` | Sources processed per serverless slice (default 4) |
+| `SCRAPE_SOURCE_TIMEOUT_MS` | Per-request timeout during a scrape (default 6000) |
+| `SCRAPE_SOURCE_RETRIES` | Retries per request during a scrape (default 1) |
+| `SCRAPE_BATCH_BUDGET_MS` | Wall-clock budget for one slice (default 35000) |
+| `SCRAPE_DISCOVERY_BUDGET_MS` | Wall-clock budget for career-page discovery (default 20000) |
+| `WORKER_DOMAINS_PER_CALL` | Company domains visited per weekly-worker call (default 2) |
+| `WORKER_CALL_BUDGET_MS` | Wall-clock budget for one worker call (default 25000) |
 | `PAYSTACK_SECRET_KEY` | Paystack API secret |
 | `PAYSTACK_WEBHOOK_SECRET` | Paystack webhook signing secret |
 | `SUPABASE_URL` | Supabase project URL |
@@ -135,12 +143,15 @@ Live-data harnesses (need `DATABASE_URL`):
 | `node scripts/test-parsers.mjs` | Parsers against live API responses |
 | `node scripts/e2e-scrape.mjs` | Full pipeline against the real database |
 | `node scripts/verify-scrape-batches.mjs` | The resumable batch pipeline runs every source within the serverless time budget |
+| `node scripts/verify-cron-scrape.mjs` | The daily cron endpoint resumes across calls and leaves no session stuck running |
 | `node scripts/verify-filters.mjs` | Every feed filter returns real rows |
 | `node scripts/verify-feed.mjs` | Feed depth, source diversity, ordering stability |
 | `node scripts/verify-freshness.mjs` | Posted-date coverage and expiry handling |
 | `node scripts/backfill-job-attrs.mjs` | Normalise job type / remote across stored leads |
 | `node scripts/db-status.mjs` | Per-user lead counts, job-type / remote distribution, freshness |
 | `node scripts/check-credits.mjs` | Credit balances and the scrape-session history |
+| `node scripts/check-links.mjs` | Every internal link resolves to a route that exists |
+| `node scripts/cleanup-stuck-sessions.mjs` | Closes scrape sessions left running by a killed invocation |
 
 ---
 
@@ -164,7 +175,31 @@ live database.
 
 Tunable with environment variables: `SCRAPE_BATCH_SIZE` (default 4),
 `SCRAPE_SOURCE_TIMEOUT_MS` (6000), `SCRAPE_SOURCE_RETRIES` (1),
-`SCRAPE_BATCH_BUDGET_MS` (35000).
+`SCRAPE_BATCH_BUDGET_MS` (35000), `SCRAPE_DISCOVERY_BUDGET_MS` (20000).
+
+### The scheduled jobs use the same trick
+
+`GET /api/cron/scrape` and `GET /api/cron/worker` had the same fatal flaw:
+each one tried to walk every source (or every company domain) inside a single
+invocation, so the platform killed them partway through and the daily job
+quietly did nothing.
+
+Both endpoints now do one bounded slice per call and report `done: false`
+while there is more to do. The GitHub Actions workflows loop until the
+response says `"done": true`:
+
+- `.github/workflows/daily-scrape.yml` — one slice per call, up to 120 calls.
+- `.github/workflows/weekly-worker.yml` — one domain slice per call, following
+  the `nextOffset` the endpoint returns.
+
+The daily job refreshes every account that could pull jobs for itself
+(subscribed **or** still holding credits). Restricting it to paid accounts
+turned the schedule into a no-op, and a stale feed is the opposite of what
+JobPilot promises. Set `CRON_INCLUDE_FREE_USERS=false` to restrict it to
+paid accounts.
+
+`scripts/verify-cron-scrape.mjs` drives the cron endpoint the same way the
+workflow does and checks that no session is left stuck at `running`.
 
 ---
 
@@ -177,6 +212,7 @@ Tunable with environment variables: `SCRAPE_BATCH_SIZE` (default 4),
 - The rate limiter is bounded and self-sweeping, so it can't grow without limit.
 - No `.env` file is tracked by git; `.env.example` contains placeholders only.
 - The admin dashboard is gated by `ADMIN_CLERK_ID` server-side and rate limited.
+- Scrape targets are stored per account and validated on write: only public `http(s)` URLs are accepted, and loopback, private, link-local and cloud-metadata addresses are rejected — the server fetches these, so an unchecked URL would be a server-side request forgery hole.
 
 ---
 
