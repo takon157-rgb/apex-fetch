@@ -83,6 +83,8 @@ export default function Dashboard() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [purgeMessage, setPurgeMessage] = useState<string | null>(null);
+  const [purging, setPurging] = useState(false);
   const [blacklist, setBlacklist] = useState<string[]>([]);
   const [blacklistInput, setBlacklistInput] = useState('');
   const [showBlacklist, setShowBlacklist] = useState(false);
@@ -370,26 +372,84 @@ export default function Dashboard() {
     setScraping(true);
     setScrapeError(null);
     setProgress(5);
-    setProgressStatus('Initializing scraper...');
+    setProgressStatus('Starting scraper...');
     setLastScrapeStats(null);
+
+    // The server runs a bounded slice per request (a serverless function
+    // cannot walk all 34 boards in one go - it gets killed partway and the
+    // session is left stuck at "running, 0 sources"). The client therefore
+    // drives the slices until the server reports the run is finished.
+    let currentSessionId: string | null = null;
+    let batch = 0;
+    const MAX_BATCHES = 40;
+
     try {
-      const response = await fetch('/api/scrape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'scrape', industry: selectedIndustry, query: nicheQuery }),
-      });
-      const data = await response.json();
-      if (response.ok && data.sessionId) {
-        setSessionId(data.sessionId);
-      } else {
-        setScrapeError(data?.error || data?.message || 'Scrape failed to start');
-        setScraping(false);
-        setProgress(0);
+      while (batch < MAX_BATCHES) {
+        batch++;
+
+        const response: Response = await fetch('/api/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'scrape',
+            industry: selectedIndustry,
+            query: nicheQuery,
+            ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+          }),
+        });
+
+        const data: {
+          error?: string;
+          message?: string;
+          sessionId?: string;
+          done?: boolean;
+          totalSources?: number;
+          completedSources?: number;
+          leadsCreated?: number;
+        } = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const msg = data?.error || data?.message || `Scrape failed (HTTP ${response.status})`;
+          setScrapeError(msg);
+          setProgressStatus(`Error: ${msg}`);
+          setScraping(false);
+          setSessionId(null);
+          return;
+        }
+
+        if (data.sessionId) {
+          currentSessionId = data.sessionId;
+          setSessionId(currentSessionId);
+        }
+
+        const total = data.totalSources || 35;
+        const doneCount = data.completedSources || 0;
+        setProgress(Math.min(95, Math.round((doneCount / total) * 100)));
+
+        if (data.done) {
+          setProgress(100);
+          setProgressStatus('Done! ✅');
+          setScrapeDone(true);
+          await fetchOpportunities({ page: 1, append: false });
+          setTimeout(() => { setProgress(0); setScrapeDone(false); }, 2500);
+          setScraping(false);
+          setSessionId(null);
+          return;
+        }
+
+        setProgressStatus(`Scraping sources ${doneCount}/${total}...`);
+        // Give the server a moment between slices and let the progress bar breathe.
+        await new Promise(r => setTimeout(r, 200));
       }
+
+      setScrapeError('Scrape stopped after too many batches. Try pulling again.');
+      setScraping(false);
+      setSessionId(null);
     } catch (err) {
       setScrapeError('Network error — check your connection');
       setScraping(false);
       setProgress(0);
+      setSessionId(null);
     }
   };
 
@@ -472,13 +532,48 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   };
 
-  const clearTrashBin = async () => {
-    const trashIds = jobs.filter(j => j.deleted).map(j => j.id);
-    if (trashIds.length === 0) return;
-    for (const id of trashIds) {
-      try { await fetch(`/api/leads/${id}`, { method: 'DELETE' }); } catch {}
+  /**
+   * Permanently delete leads in bulk.
+   *
+   * The old version emptied the trash with one DELETE request per row that
+   * happened to be loaded on screen, so most of the trash survived. This hits
+   * the server-side bulk endpoint instead, which removes every matching row.
+   */
+  const purgeLeads = async (scope: 'trash' | 'older', days?: number) => {
+    const label = scope === 'trash'
+      ? 'Permanently delete everything in the Trash Bin?'
+      : `Permanently delete leads older than ${days ?? 30} days? Applied leads are kept.`;
+    if (!window.confirm(label)) return;
+
+    setPurging(true);
+    setPurgeMessage(null);
+    try {
+      const res = await fetch('/api/leads/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scope === 'trash' ? { scope } : { scope, days }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPurgeMessage(data?.error || 'Could not delete the selected leads.');
+        return;
+      }
+      setPurgeMessage(
+        scope === 'trash'
+          ? `Deleted ${data.deleted ?? 0} lead${data.deleted === 1 ? '' : 's'} from the trash.`
+          : `Deleted ${data.deleted ?? 0} old lead${data.deleted === 1 ? '' : 's'}.`,
+      );
+      await fetchOpportunities({ page: 1, append: false });
+      setTimeout(() => setPurgeMessage(null), 6000);
+    } catch {
+      setPurgeMessage('Network error — could not delete the selected leads.');
+    } finally {
+      setPurging(false);
     }
-    setJobs(prev => prev.filter(j => !j.deleted));
+  };
+
+  const clearTrashBin = async () => {
+    await purgeLeads('trash');
   };
 
   const filterByIndustry = (job: JobOpportunity) => {
@@ -647,7 +742,7 @@ export default function Dashboard() {
           {!isSubscribed && (
             <div className="rounded-xl bg-gradient-to-br from-indigo-600/10 to-violet-600/10 border border-indigo-500/20 p-4 space-y-3">
               <div><p className="text-[11px] font-bold text-indigo-300">Unlock Full Access</p><p className="text-[10px] text-slate-400 mt-1">Get unlimited leads, priority AI analysis, and Discord alerts.</p></div>
-              <Link href="/profile" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Upgrade Plan</Link>
+              <Link href="/pricing" className="block w-full text-center text-xs font-bold py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-400 hover:to-violet-400 transition-all hover:scale-[1.02] shadow-lg shadow-indigo-500/20 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">Upgrade Plan</Link>
             </div>
           )}
 
@@ -858,8 +953,22 @@ export default function Dashboard() {
             <span aria-live="polite" className="text-xs sm:text-sm font-semibold text-slate-400 truncate">Found <strong className="text-slate-200">{viewMode === 'trash' ? displayedOpportunities.length : totalCount}</strong> {viewMode === 'trash' ? (displayedOpportunities.length === 1 ? 'entry' : 'entries') : 'matching jobs'}{hideExpired && expiredCount > 0 ? <span className="text-rose-300/80"> · {expiredCount} expired hidden</span> : null}</span>
             <div className="flex items-center gap-2">
               {viewMode === 'trash' && totalTrashCount > 0 && (
-                <button onClick={clearTrashBin} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
-                  🗑 Clear All
+                <button
+                  onClick={clearTrashBin}
+                  disabled={purging}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30 transition shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+                >
+                  {purging ? 'Deleting…' : '🗑 Empty trash'}
+                </button>
+              )}
+              {viewMode === 'active' && (
+                <button
+                  onClick={() => purgeLeads('older', 30)}
+                  disabled={purging}
+                  title="Permanently delete leads older than 30 days (applied leads are kept)"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-900/70 text-slate-300 border border-slate-700 hover:bg-rose-600/20 hover:text-rose-300 hover:border-rose-500/30 transition shrink-0 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
+                >
+                  {purging ? 'Deleting…' : '🧹 Clear old'}
                 </button>
               )}
               <select value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort jobs" className="bg-slate-900 border border-slate-700 text-slate-200 text-xs sm:text-sm rounded-lg px-2.5 py-1.5 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none">
@@ -869,6 +978,12 @@ export default function Dashboard() {
               </select>
             </div>
           </div>
+
+          {purgeMessage && (
+            <p role="status" className="mt-2 rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+              {purgeMessage}
+            </p>
+          )}
 
           {loading ? (
             <div className="space-y-3.5" aria-busy="true" aria-label="Loading jobs">

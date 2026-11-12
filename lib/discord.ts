@@ -1,4 +1,5 @@
 import { prisma } from './prisma';
+import { BRAND } from './brand';
 
 export async function sendJobDiscordAlert(
   webhookUrl: string,
@@ -24,7 +25,7 @@ export async function sendJobDiscordAlert(
           ...(job.summary ? [{ name: 'Summary', value: stripHtml(job.summary).substring(0, 500) }] : []),
           ...(job.proposal ? [{ name: 'Proposal', value: stripHtml(job.proposal).substring(0, 500) }] : []),
         ],
-        footer: { text: `ApexFetch • ${mode === 'manual' ? 'Manual Dispatch' : 'Auto Dispatch'}` },
+        footer: { text: `${BRAND.name} • ${mode === 'manual' ? 'Manual Dispatch' : 'Auto Dispatch'}` },
         timestamp: new Date().toISOString(),
       }],
     };

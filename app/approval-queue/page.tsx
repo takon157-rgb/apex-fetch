@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
 import ApprovalActions from '../components/ApprovalActions';
+import ResumeDocument from '../components/ResumeDocument';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,9 @@ export default async function ApprovalQueuePage() {
         take: 100,
       })
     : [];
+
+  // Shown in the header of the generated resume document.
+  const candidateContact = [user?.email, user?.name].filter(Boolean).join(' · ') || null;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950/40 to-slate-950 text-white p-4 sm:p-8 md:p-12">
@@ -137,6 +141,13 @@ export default async function ApprovalQueuePage() {
                         No cover email drafted for this job yet.
                       </p>
                     )}
+
+                    <ResumeDocument
+                      resumeText={lead.tailoredResume || ''}
+                      name={user?.name || null}
+                      contact={candidateContact}
+                      targetRole={lead.title}
+                    />
 
                     <ApprovalActions
                       leadId={lead.id}

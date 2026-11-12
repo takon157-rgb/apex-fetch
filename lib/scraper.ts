@@ -64,7 +64,24 @@ function hostOf(url: string): string {
   }
 }
 
-async function fetchWithRetry(url: string, opts: RequestInit = {}, retries = 2, timeoutMs = 15000): Promise<Response | null> {
+// Per-request knobs for every outbound fetch. The serverless scrape runner
+// lowers these so a single unresponsive board cannot consume an entire
+// function invocation's time budget (the full pipeline takes minutes, but a
+// serverless invocation may only have ~60s).
+let requestTimeoutMs = 15000;
+let requestRetries = 2;
+
+export function configureSourceRequests(opts: { timeoutMs?: number; retries?: number }): void {
+  if (typeof opts.timeoutMs === 'number' && opts.timeoutMs > 0) requestTimeoutMs = opts.timeoutMs;
+  if (typeof opts.retries === 'number' && opts.retries >= 0) requestRetries = opts.retries;
+}
+
+async function fetchWithRetry(
+  url: string,
+  opts: RequestInit = {},
+  retries: number = requestRetries,
+  timeoutMs: number = requestTimeoutMs,
+): Promise<Response | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -342,6 +359,38 @@ export async function discoverCompanyJobs(companyUrls: string[]): Promise<Scrape
 // ---------------------------------------------------------------------------
 // Main pipeline
 // ---------------------------------------------------------------------------
+/**
+ * Controls how much of the pipeline one invocation runs.
+ *
+ * A full run over 34 boards takes several minutes. On a serverless platform
+ * the function is killed long before that, which is why the pipeline is now
+ * resumable: each invocation processes a slice of the sources, records where
+ * it stopped, and the caller asks for the next slice.
+ */
+export interface ScrapeBatchOptions {
+  /** Index of the first source to process. */
+  sourceOffset?: number;
+  /** Maximum number of sources to process in this batch. */
+  sourceLimit?: number;
+  /** Run the company career-page discovery pass. */
+  discovery?: boolean;
+  /** Stop early once this many milliseconds have elapsed. */
+  timeBudgetMs?: number;
+}
+
+export interface ScrapePipelineResult {
+  leadsCreated: number;
+  leadsPruned: number;
+  leadsHealed: number;
+  sourceResults: { source: string; success: boolean; count: number; error?: string }[];
+  /** Index of the next source that still needs processing. */
+  nextOffset: number;
+  /** True when every registered source has been processed. */
+  allSourcesDone: boolean;
+  /** True when the batch stopped early because it ran out of time. */
+  timedOut: boolean;
+}
+
 export async function runScrapePipeline(
   userId: string,
   preferences: { targetRoles: string[]; coreSkills: string[]; parsedResumeSummary: string | null } | null,
@@ -349,20 +398,39 @@ export async function runScrapePipeline(
   industry: string,
   nicheQuery: string,
   onProgress: (completed: number, total: number, current: string, leadsFound: number) => Promise<void>,
-): Promise<{ leadsCreated: number; leadsPruned: number; leadsHealed: number; sourceResults: { source: string; success: boolean; count: number; error?: string }[] }> {
+  options: ScrapeBatchOptions = {},
+): Promise<ScrapePipelineResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error('User not found');
 
   const allItems: ScrapedItem[] = [];
   const sourceResults: { source: string; success: boolean; count: number; error?: string }[] = [];
-  let completed = 0;
 
   // Cap per source per scrape run so a single high-volume board can't
-// monopolise the feed. 31 sources x 40 = up to ~1240 fresh leads per run.
-const MAX_JOBS_PER_SOURCE = 40;
+  // monopolise the feed. 34 sources x 40 = up to ~1360 fresh leads per run.
+  const MAX_JOBS_PER_SOURCE = 40;
 
-let previousHost = '';
-  for (const source of SOURCES) {
+  const totalSources = SOURCES.length;
+  const startOffset = Math.max(0, Math.min(options.sourceOffset ?? 0, totalSources));
+  const maxSources = options.sourceLimit != null
+    ? Math.max(0, options.sourceLimit)
+    : totalSources - startOffset;
+  const timeBudgetMs = options.timeBudgetMs ?? 0;
+  const batchStartedAt = Date.now();
+
+  let timedOut = false;
+  let nextOffset = startOffset;
+  let previousHost = '';
+  for (let index = startOffset; index < totalSources; index++) {
+    // Batch boundary - stop before starting another source.
+    if (index - startOffset >= maxSources) break;
+    // Time budget - stop before starting another source. The source we would
+    // have run next is picked up by the following invocation.
+    if (timeBudgetMs > 0 && Date.now() - batchStartedAt >= timeBudgetMs) {
+      timedOut = true;
+      break;
+    }
+    const source = SOURCES[index];
     try {
       // Be polite to a host we just hit, but don't stall between different
       // companies — 30 sources at a blanket 1s would blow the pipeline budget.
@@ -392,36 +460,38 @@ let previousHost = '';
       }
 
       allItems.push(...items);
-      completed++;
       sourceResults.push({ source: source.name, success: true, count: items.length });
-      await onProgress(completed, SOURCES.length + 1, source.name, allItems.length);
+      nextOffset = index + 1;
+      await onProgress(index + 1, totalSources + 1, source.name, allItems.length);
     } catch (err) {
-      completed++;
       sourceResults.push({ source: source.name, success: false, count: 0, error: String(err) });
-      await onProgress(completed, SOURCES.length + 1, source.name, allItems.length);
+      nextOffset = index + 1;
+      await onProgress(index + 1, totalSources + 1, source.name, allItems.length);
     }
   }
 
   // Direct company career-page discovery. Previously this only ran in the weekly
   // cron, so a manual "Pull" never touched company /careers pages. Derive the
   // target domains from jobs we already have for this user, then scrape them.
-  try {
-    const priorLeads = await prisma.lead.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 120,
-      select: { url: true },
-    });
-    const domains = extractCompanyDomains(priorLeads.map(l => l.url));
-    if (domains.length > 0) {
-      const companyUrls = domains.slice(0, 12).map(d => `https://${d}`);
-      const companyItems = await discoverCompanyJobs(companyUrls);
-      allItems.push(...companyItems);
-      sourceResults.push({ source: 'Company Career Pages', success: true, count: companyItems.length });
-      await onProgress(SOURCES.length + 1, SOURCES.length + 1, 'Company Career Pages', allItems.length);
+  if (options.discovery) {
+    try {
+      const priorLeads = await prisma.lead.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 120,
+        select: { url: true },
+      });
+      const domains = extractCompanyDomains(priorLeads.map(l => l.url));
+      if (domains.length > 0) {
+        const companyUrls = domains.slice(0, 12).map(d => `https://${d}`);
+        const companyItems = await discoverCompanyJobs(companyUrls);
+        allItems.push(...companyItems);
+        sourceResults.push({ source: 'Company Career Pages', success: true, count: companyItems.length });
+        await onProgress(totalSources + 1, totalSources + 1, 'Company Career Pages', allItems.length);
+      }
+    } catch (err) {
+      sourceResults.push({ source: 'Company Career Pages', success: false, count: 0, error: String(err) });
     }
-  } catch (err) {
-    sourceResults.push({ source: 'Company Career Pages', success: false, count: 0, error: String(err) });
   }
 
   // Cross-source dedupe (canonical URL + normalized title fingerprint)
@@ -556,5 +626,13 @@ let previousHost = '';
     })),
   });
 
-  return { leadsCreated, leadsPruned: 0, leadsHealed: healBatch.length, sourceResults };
+  return {
+    leadsCreated,
+    leadsPruned: 0,
+    leadsHealed: healBatch.length,
+    sourceResults,
+    nextOffset,
+    allSourcesDone: nextOffset >= totalSources,
+    timedOut,
+  };
 }

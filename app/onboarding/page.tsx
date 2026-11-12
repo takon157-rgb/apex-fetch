@@ -3,6 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
+import { REFERRAL_STORAGE_KEY } from '@/lib/brand'
 
 const PREDEFINED_ROLES = [
   'AI Automation',
@@ -135,7 +136,7 @@ export default function OnboardingPage() {
   }
 
   const applyReferral = async () => {
-    const ref = localStorage.getItem('apexfetch_ref')
+    const ref = localStorage.getItem(REFERRAL_STORAGE_KEY)
     if (ref) {
       try {
         await fetch('/api/referral', {
@@ -144,7 +145,7 @@ export default function OnboardingPage() {
           body: JSON.stringify({ code: ref }),
         })
       } catch {} finally {
-        localStorage.removeItem('apexfetch_ref')
+        localStorage.removeItem(REFERRAL_STORAGE_KEY)
       }
     }
   }

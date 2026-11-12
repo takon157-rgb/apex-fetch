@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton, useUser } from '@clerk/nextjs';
+import { BRAND, openWelcome } from '@/lib/brand';
 
 export default function Header() {
   const [open, setOpen] = useState(false);
@@ -32,10 +33,10 @@ export default function Header() {
             </svg>
           </button>
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 bg-gradient-to-tr from-indigo-500 to-violet-500 rounded-md flex items-center justify-center font-bold">
-              AF
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-tr from-indigo-500 to-violet-500 text-[11px] font-bold text-white">
+              {BRAND.mark}
             </div>
-            <div className="text-sm font-bold">Apex Fetch</div>
+            <div className="text-sm font-bold">{BRAND.name}</div>
           </div>
         </div>
 
@@ -58,6 +59,9 @@ export default function Header() {
           <Link href="/profile" className="text-sm text-slate-300 hover:text-white">
             Profile
           </Link>
+          <Link href="/pricing" className="text-sm text-slate-300 hover:text-white">
+            Pricing
+          </Link>
           {isAdmin && (
             <Link href="/admin" className="text-sm text-amber-400 hover:text-amber-300 font-semibold">
               Admin
@@ -77,6 +81,21 @@ export default function Header() {
               </SignUpButton>
             </SignedOut>
             <SignedIn>
+              <button
+                onClick={openWelcome}
+                title="Show the getting-started guide"
+                aria-label="Show the getting-started guide"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 16v-4m0-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
               <UserButton
                 appearance={{
                   elements: {
@@ -111,6 +130,9 @@ export default function Header() {
             <Link href="/profile" className="block text-slate-200" onClick={() => setOpen(false)}>
               Profile
             </Link>
+            <Link href="/pricing" className="block text-slate-200" onClick={() => setOpen(false)}>
+              Pricing
+            </Link>
             {isAdmin && (
               <Link href="/admin" className="block text-amber-400" onClick={() => setOpen(false)}>
                 Admin
@@ -130,6 +152,15 @@ export default function Header() {
                 </SignUpButton>
               </SignedOut>
               <SignedIn>
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    openWelcome();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-700"
+                >
+                  <span aria-hidden="true">💡</span> Getting-started guide
+                </button>
                 <UserButton afterSignOutUrl="/" />
               </SignedIn>
             </div>
