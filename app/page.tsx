@@ -541,7 +541,7 @@ export default function Dashboard() {
    */
   const purgeLeads = async (scope: 'trash' | 'older', days?: number) => {
     const label = scope === 'trash'
-      ? 'Permanently delete everything in the Trash Bin?'
+      ? 'Permanently delete everything in the Trash Bin? Leads you already applied to are kept.'
       : `Permanently delete leads older than ${days ?? 30} days? Applied leads are kept.`;
     if (!window.confirm(label)) return;
 
@@ -558,9 +558,12 @@ export default function Dashboard() {
         setPurgeMessage(data?.error || 'Could not delete the selected leads.');
         return;
       }
+      const keptNote = data.kept > 0
+        ? ` ${data.kept} applied lead${data.kept === 1 ? '' : 's'} kept.`
+        : '';
       setPurgeMessage(
         scope === 'trash'
-          ? `Deleted ${data.deleted ?? 0} lead${data.deleted === 1 ? '' : 's'} from the trash.`
+          ? `Deleted ${data.deleted ?? 0} lead${data.deleted === 1 ? '' : 's'} from the trash.${keptNote}`
           : `Deleted ${data.deleted ?? 0} old lead${data.deleted === 1 ? '' : 's'}.`,
       );
       await fetchOpportunities({ page: 1, append: false });

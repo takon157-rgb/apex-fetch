@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  * scoped to the signed-in user.
  *
  * Scopes:
- *   trash  - permanently delete everything currently in the trash
+ *   trash  - permanently delete everything currently in the trash, except
+ *            leads the user has already applied to
  *   older  - permanently delete leads older than `days` (never removes leads
  *            the user has already applied to)
  */
@@ -36,10 +37,15 @@ export async function POST(req: NextRequest) {
     const days = Math.min(Math.max(Number(payload.days) || 30, 1), 365);
 
     if (scope === 'trash') {
+      // Leads the user already applied to are kept even when they sit in the
+      // trash - that row is the record of an application they sent.
       const { count } = await prisma.lead.deleteMany({
-        where: { userId: user.id, deleted: true },
+        where: { userId: user.id, deleted: true, applied: false },
       });
-      return NextResponse.json({ success: true, scope, deleted: count });
+      const kept = await prisma.lead.count({
+        where: { userId: user.id, deleted: true, applied: true },
+      });
+      return NextResponse.json({ success: true, scope, deleted: count, kept });
     }
 
     if (scope === 'older') {

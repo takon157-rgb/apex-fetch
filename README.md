@@ -152,6 +152,7 @@ Live-data harnesses (need `DATABASE_URL`):
 | `node scripts/check-credits.mjs` | Credit balances and the scrape-session history |
 | `node scripts/check-links.mjs` | Every internal link resolves to a route that exists |
 | `node scripts/cleanup-stuck-sessions.mjs` | Closes scrape sessions left running by a killed invocation |
+| `node scripts/verify-purge.mjs` | Bulk delete clears the whole trash and keeps leads you already applied to |
 
 ---
 
