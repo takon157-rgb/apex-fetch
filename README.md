@@ -221,7 +221,7 @@ workflow does and checks that no session is left stuck at `running`.
 
 The app deploys to Vercel with Supabase as the database.
 
-**Live production URL:** <https://apex-fetch-takon157-rgbs-projects.vercel.app>
+**Live production URL:** <https://apexfetch.vercel.app>
 
 ### GitHub → Vercel (the supported path)
 
