@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { BRAND } from '@/lib/brand';
+import { prisma } from '@/lib/prisma';
 
 /**
  * sitemap.xml
@@ -8,8 +9,22 @@ import { BRAND } from '@/lib/brand';
  * and served as the sign-in page. Only routes that are publicly reachable are
  * listed; the rest redirect to sign-in and would only waste crawl budget.
  */
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
+
+  const jobs = await prisma.lead.findMany({
+    where: { deleted: false },
+    select: { url: true, updatedAt: true, createdAt: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 500, // Limit to prevent massive sitemap
+  });
+
+  const jobUrls = jobs.map((job) => ({
+    url: `${BRAND.siteUrl}/jobs/${encodeURIComponent(job.url)}`,
+    lastModified: job.updatedAt,
+    changeFrequency: 'daily' as const,
+    priority: 0.8,
+  }));
 
   const routes: MetadataRoute.Sitemap = [
     {
@@ -42,6 +57,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'yearly',
       priority: 0.3,
     },
+    ...jobUrls,
   ];
 
   return routes;

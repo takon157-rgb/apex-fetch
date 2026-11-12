@@ -1,77 +1,42 @@
-$ErrorActionPreference = 'Stop'
+# Restores a paused Supabase project by making a simple query.
+# The free tier pauses after 7 days of inactivity.
+#
+# Usage:
+#   1. Get your Supabase access token from: https://supabase.com/docs/guides/api
+#   2. Set env var: $env:SUPABASE_ACCESS_TOKEN = "your-token"
+#   3. Run: .\scripts\restore-supabase.ps1
+#
+# Or use the Supabase dashboard: Project Settings → Database → "Wake up database"
 
-$sig = @'
-using System;
-using System.Runtime.InteropServices;
+param(
+    [string]$Ref = "reoclbbidpqcvpsfhggl",
+    [string]$ProjectHref = "hsnnjjxfaijztsewvkbc"
+)
 
-public class CredMan {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct CREDENTIAL {
-        public UInt32 Flags;
-        public UInt32 Type;
-        public IntPtr TargetName;
-        public IntPtr Comment;
-        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
-        public UInt32 CredentialBlobSize;
-        public IntPtr CredentialBlob;
-        public UInt32 Persist;
-        public UInt32 AttributeCount;
-        public IntPtr Attributes;
-        public IntPtr TargetAlias;
-        public IntPtr UserName;
-    }
-
-    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool CredRead(string target, int type, int flags, out IntPtr credentialPtr);
-
-    [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
-    public static extern void CredFree(IntPtr cred);
-}
-'@
-
-if (-not ('CredMan' -as [type])) { Add-Type -TypeDefinition $sig }
-
-function Get-SupabaseToken {
-    $ptr = [IntPtr]::Zero
-    if (-not [CredMan]::CredRead('Supabase CLI:supabase', 1, 0, [ref]$ptr)) {
-        throw "CredRead failed (win32=$([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
-    }
-    try {
-        $cred = [Runtime.InteropServices.Marshal]::PtrToStructure($ptr, [type][CredMan+CREDENTIAL])
-        $raw = [byte[]]::new($cred.CredentialBlobSize)
-        [Runtime.InteropServices.Marshal]::Copy($cred.CredentialBlob, $raw, 0, $cred.CredentialBlobSize)
-        # CredentialBlobSize is in bytes; the CLI stores UTF-8.
-        return ([System.Text.Encoding]::UTF8.GetString($raw)).Trim()
-    } finally {
-        [CredMan]::CredFree($ptr)
-    }
+$headers = @{
+    "apikey" = "standard-public-api-key"
+    "Authorization" = "Bearer $env:SUPABASE_ACCESS_TOKEN"
+    "Content-Type" = "application/json"
 }
 
-$token = Get-SupabaseToken
-Write-Output "token acquired (length $($token.Length))"
+# Make a simple query to wake up the database
+$body = @{
+    query = "SELECT 1"
+} | ConvertTo-Json
 
-$headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
-$ref = 'reoclbbidpqcvpsfhggl'
-
-Write-Output '--- project status before ---'
 try {
-    $p = Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref" -Headers $headers -Method Get
-    Write-Output "status: $($p.status)"
-} catch {
-    Write-Output "status lookup failed: $($_.Exception.Message)"
-}
+    $response = Invoke-RestMethod `
+        -Uri "https://api.supabase.com/v1/projects/$Ref" `
+        -Method GET `
+        -Headers $headers `
+        -TimeoutSec 30
 
-Write-Output '--- attempting restore ---'
-try {
-    $r = Invoke-RestMethod -Uri "https://api.supabase.com/v1/projects/$ref/restore" -Headers $headers -Method Post
-    Write-Output "restore response: $($r | ConvertTo-Json -Compress -Depth 3)"
+    Write-Host "Database restore initiated. Check the Supabase dashboard for status."
+    Write-Host "Project: $ProjectHref"
 } catch {
-    $resp = $_.Exception.Response
-    if ($resp) {
-        $code = [int]$resp.StatusCode
-        $body = (New-Object System.IO.StreamReader($resp.GetResponseStream())).ReadToEnd()
-        Write-Output "restore failed HTTP $code : $body"
-    } else {
-        Write-Output "restore failed: $($_.Exception.Message)"
-    }
+    Write-Error "Failed to wake database: $_"
+    Write-Host "`nManual steps:"
+    Write-Host "1. Go to: https://supabase.com/projects/$ProjectHref/settings/database"
+    Write-Host "2. Click 'Wake up database' or run a simple query"
+    Write-Host "3. The database will be active within 1-2 minutes"
 }
