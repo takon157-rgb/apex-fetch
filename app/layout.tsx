@@ -4,11 +4,10 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
 import Header from './components/Header';
 import OnboardingPopup from './components/OnboardingPopup';
+import EncodingRepair from './components/EncodingRepair';
 import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
-  // Without a base URL Next.js cannot resolve relative canonical and Open
-  // Graph URLs, and it silently emits none at all.
   metadataBase: new URL(BRAND.siteUrl),
   title: {
     default: `${BRAND.name} — ${BRAND.tagline}`,
@@ -28,9 +27,7 @@ export const metadata: Metadata = {
   authors: [{ name: BRAND.name }],
   creator: BRAND.name,
   publisher: BRAND.name,
-  alternates: {
-    canonical: '/',
-  },
+  alternates: { canonical: '/' },
   openGraph: {
     type: 'website',
     locale: 'en_US',
@@ -58,18 +55,12 @@ export const metadata: Metadata = {
   category: 'technology',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider
       appearance={{
         baseTheme: dark,
-        layout: {
-          unsafe_disableDevelopmentModeWarnings: true,
-        },
+        layout: { unsafe_disableDevelopmentModeWarnings: true },
       }}
     >
       <html lang="en">
@@ -77,6 +68,7 @@ export default function RootLayout({
           <Header />
           <main>{children}</main>
           <OnboardingPopup />
+          <EncodingRepair />
         </body>
       </html>
     </ClerkProvider>
