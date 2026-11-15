@@ -28,22 +28,18 @@ export async function POST(req: NextRequest) {
   try {
     const { userId: clerkId } = await auth();
     if (!clerkId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
     const user = await prisma.user.findUnique({ where: { clerkId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
     const body = await req.json().catch(() => ({}));
     const action = typeof body.action === 'string' ? body.action : '';
     const leadId = typeof body.leadId === 'string' ? body.leadId : '';
-
     if (!leadId) return NextResponse.json({ error: 'Missing leadId' }, { status: 400 });
 
     const lead = await prisma.lead.findFirst({ where: { id: leadId, userId: user.id } });
     if (!lead) return NextResponse.json({ error: 'Job not found' }, { status: 404 });
-
     const resume = await loadResumeProfile(user.id);
 
-    // --- Score fit (LLM 0-100 + matched/missing skills + reason) ---
     if (action === 'score') {
       const fit = await scoreJobFit(resume, { title: lead.title, description: lead.description });
       await prisma.lead.update({
@@ -53,13 +49,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, fit });
     }
 
-    // --- Tailor resume + cover email, then verify no fabrication ---
     if (action === 'tailor') {
       const profile = await prisma.careerProfile.findUnique({ where: { userId: user.id } });
+      if (!profile?.resumeText?.trim() && !resume.summary && !resume.skills.length) {
+        return NextResponse.json({ error: 'Upload or paste your resume in Profile before tailoring.' }, { status: 400 });
+      }
       const result = await tailorApplication(
-        { name: profile?.name || user.name || undefined, summary: resume.summary, skills: resume.skills, roles: resume.roles },
+        {
+          name: profile?.name || user.name || undefined,
+          summary: resume.summary,
+          skills: resume.skills,
+          roles: resume.roles,
+          resumeText: profile?.resumeText || resume.summary,
+        },
         { title: lead.title, company: lead.company || undefined, description: lead.description },
       );
+      if (!result.tailoredResume || !result.coverEmail) {
+        return NextResponse.json({ error: 'The application draft could not be generated. Try again.' }, { status: 502 });
+      }
       await prisma.lead.update({
         where: { id: leadId },
         data: {
@@ -71,44 +78,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, ...result });
     }
 
-    // --- Send application email (with PDF resume attached) ---
     if (action === 'send') {
       const to = typeof body.to === 'string' ? body.to.trim() : '';
       if (!to) return NextResponse.json({ error: 'Missing recipient email (to)' }, { status: 400 });
-
-      // Safety rails: must be approved by a human, and under the daily cap.
       const sentToday = await prisma.lead.count({
-        where: {
-          userId: user.id,
-          applicationStatus: 'sent',
-          sentAt: { gte: startOfToday() },
-        },
+        where: { userId: user.id, applicationStatus: 'sent', sentAt: { gte: startOfToday() } },
       });
       const gate = canSendApplication({ approved: !!lead.approvedAt, sentToday });
-      if (!gate.allowed) {
-        return NextResponse.json({ error: gate.reason, sentToday }, { status: 429 });
-      }
-
-      if (!lead.tailoredResume) {
-        return NextResponse.json({ error: 'No tailored resume yet — tailor it before sending.' }, { status: 400 });
-      }
+      if (!gate.allowed) return NextResponse.json({ error: gate.reason, sentToday }, { status: 429 });
+      if (!lead.tailoredResume) return NextResponse.json({ error: 'No tailored resume yet — tailor it before sending.' }, { status: 400 });
 
       const draftCheck = validateEmailDraft(lead.coverEmail || '', { company: lead.company || undefined, role: lead.title });
-      if (!draftCheck.ok) {
-        return NextResponse.json({ error: 'Draft failed placeholder check', problems: draftCheck.problems }, { status: 400 });
-      }
+      if (!draftCheck.ok) return NextResponse.json({ error: 'Draft failed placeholder check', problems: draftCheck.problems }, { status: 400 });
 
       const profile = await prisma.careerProfile.findUnique({ where: { userId: user.id } });
-      const pdf = await resumeToPdf(lead.tailoredResume || resume.summary, profile?.name || user.name || '');
+      const pdf = await resumeToPdf(lead.tailoredResume, profile?.name || user.name || '');
       const subject = `Application: ${lead.title}${lead.company ? ` at ${lead.company}` : ''}`;
-
       const result = await sendApplicationEmail({
         to,
         subject,
         text: lead.coverEmail || '',
         attachments: pdf ? [{ filename: 'resume.pdf', content: pdf, contentType: 'application/pdf' }] : [],
       });
-
       if (result.ok) {
         await prisma.lead.update({
           where: { id: leadId },
@@ -119,7 +110,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: result.error }, { status: 502 });
     }
 
-    // --- Update application status ---
     if (action === 'status') {
       const status = typeof body.status === 'string' ? body.status : '';
       if (!VALID_STATUSES.includes(status)) {
@@ -133,8 +123,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-  } catch (err) {
-    console.error('[Apply] Error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Internal Server Error' }, { status: 500 });
+  } catch (error) {
+    console.error('[Apply] Error:', error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal Server Error' }, { status: 500 });
   }
 }
