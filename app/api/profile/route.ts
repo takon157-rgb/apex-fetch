@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { prisma } from '@/lib/prisma';
+import { parseResumePdf, validatePdfBytes } from '@/lib/resume-parser';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Strip the stored resume binary before sending the profile to the browser.
- *
- * The base64 PDF can be megabytes, and it is the user's most sensitive piece
- * of data on the platform. The client only needs to know whether a resume
- * exists; the server-side tailoring routes read it straight from the DB.
- */
 function sanitizeProfile(profile: any) {
   if (!profile) return null;
   const { resumeBase64, ...rest } = profile;
@@ -29,14 +23,26 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.findUnique({ where: { clerkId } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-    const payload = await req.json().catch(() => ({}));
-    if (!payload) return NextResponse.json({ error: 'No payload' }, { status: 400 });
+    const payload = await req.json().catch(() => null);
+    if (!payload || typeof payload !== 'object') return NextResponse.json({ error: 'Invalid profile payload.' }, { status: 400 });
 
-    // Only overwrite the stored resume when the client actually sent a new
-    // one. Otherwise a profile save would silently wipe the uploaded resume.
     const hasNewBinary = typeof payload.resumeBase64 === 'string' && payload.resumeBase64.length > 0;
     const hasNewText = typeof payload.resumeText === 'string';
     const hasNewFileName = typeof payload.resumeFileName === 'string' && payload.resumeFileName.length > 0;
+
+    let encoded = '';
+    let parsed: Awaited<ReturnType<typeof parseResumePdf>> | null = null;
+    if (hasNewBinary) {
+      encoded = payload.resumeBase64.replace(/^data:application\/pdf;base64,/i, '').trim();
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+        return NextResponse.json({ error: 'The resume upload is not valid base64 PDF data.' }, { status: 400 });
+      }
+      const bytes = Buffer.from(encoded, 'base64');
+      const invalidPdf = validatePdfBytes(bytes);
+      if (invalidPdf) return NextResponse.json({ error: invalidPdf }, { status: 400 });
+      encoded = bytes.toString('base64');
+      parsed = await parseResumePdf(encoded);
+    }
 
     const profile = await prisma.careerProfile.upsert({
       where: { userId: user.id },
@@ -45,22 +51,46 @@ export async function POST(req: NextRequest) {
         name: payload.name || payload.fullName || 'Unnamed',
         email: payload.email || '',
         resumeFileName: hasNewFileName ? payload.resumeFileName : '',
-        resumeBase64: hasNewBinary ? payload.resumeBase64 : '',
-        resumeText: hasNewText ? payload.resumeText : '',
+        resumeBase64: hasNewBinary ? encoded : '',
+        resumeText: hasNewText ? payload.resumeText : parsed?.resumeText || '',
       },
       update: {
         name: payload.name || payload.fullName || 'Unnamed',
         email: payload.email || '',
         ...(hasNewFileName ? { resumeFileName: payload.resumeFileName } : {}),
-        ...(hasNewBinary ? { resumeBase64: payload.resumeBase64 } : {}),
-        ...(hasNewText ? { resumeText: payload.resumeText } : {}),
+        ...(hasNewBinary ? { resumeBase64: encoded } : {}),
+        ...(hasNewText ? { resumeText: payload.resumeText } : parsed ? { resumeText: parsed.resumeText } : {}),
       },
     });
 
-    return NextResponse.json({ success: true, profile: sanitizeProfile(profile) });
-  } catch (err) {
-    console.error('[Profile API] Error saving profile:', err);
-    return NextResponse.json({ error: true, message: (err as Error).message }, { status: 500 });
+    if (parsed) {
+      await prisma.userPreference.upsert({
+        where: { userId: user.id },
+        create: {
+          userId: user.id,
+          targetRoles: parsed.targetRoles,
+          coreSkills: parsed.coreSkills,
+          parsedResumeSummary: parsed.summary,
+          setupComplete: true,
+        },
+        update: {
+          targetRoles: parsed.targetRoles,
+          coreSkills: parsed.coreSkills,
+          parsedResumeSummary: parsed.summary,
+          setupComplete: true,
+        },
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      profile: sanitizeProfile(profile),
+      ...(parsed ? { parsed: { targetRoles: parsed.targetRoles, coreSkills: parsed.coreSkills, parsedResumeSummary: parsed.summary } } : {}),
+    });
+  } catch (error) {
+    console.error('[Profile API] Error saving profile:', error);
+    const message = error instanceof Error ? error.message : 'Could not save your profile.';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -74,8 +104,9 @@ export async function GET() {
 
     const profile = await prisma.careerProfile.findUnique({ where: { userId: user.id } });
     return NextResponse.json({ profile: sanitizeProfile(profile) });
-  } catch (err) {
-    console.error('[Profile API] Error fetching profile:', err);
-    return NextResponse.json({ error: true, message: (err as Error).message }, { status: 500 });
+  } catch (error) {
+    console.error('[Profile API] Error fetching profile:', error);
+    const message = error instanceof Error ? error.message : 'Could not fetch your profile.';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
